@@ -1,0 +1,48 @@
+# Study parameters
+#
+# Every script reads its parameters from this file through get_param() in
+# Code/00_setup.R. A parameter set to null stops any script that asks for it:
+# write the value here once the decision is made, never inside a script.
+
+study:
+  years: [2009, 2020]                    # first and last calendar year analysed
+  warm_season_months: [11, 12, 1, 2, 3]  # 1 November to 31 March (austral summer)
+  n_municipalities: 33                   # Santiago Province plus Puente Alto
+
+temperature:
+  # CR2MET v2.5, daily series aggregated by municipality
+  percentile_reference_years: [1990, 2020]  # baseline period for the percentiles
+  percentile_thresholds: [90, 95, 99]       # percentiles of daily maximum temperature
+  absolute_threshold_celsius: 30            # alternative fixed threshold
+  min_consecutive_days: [2, 3, 4]           # heatwave duration definitions
+  include_ehf: true                         # Excess Heat Factor
+  percentile_season: null                   # TO DECIDE: "all_year" or "warm_season"
+
+air_pollution:
+  # SINCA monitors, daily values interpolated to one point per municipality
+  primary_pollutant: o3
+  adjustment_pollutants: [pm25, no2]
+  series_version_main: opr          # operational period only; recommended by the data author, confirm with the PI
+  series_version_sensitivity: all   # also includes values modelled outside each monitor's operational period
+  interpolation_method: null        # TO DECIDE: "idw" or "ok" (ordinary kriging)
+  min_stations: null                # TO DECIDE: minimum number of monitors behind a municipality-day
+  ozone_exposure_definition: null   # TO DECIDE: what counts as elevated ozone
+
+mortality:
+  # DEIS deaths database (DEFUNCIONES), Ministry of Health of Chile
+  years: [2009, 2020]
+  icd10_non_accidental: null    # TO DEFINE: ICD-10 codes or ranges
+  icd10_cardiopulmonary: null   # TO DEFINE: ICD-10 codes or ranges for each specific cause
+
+design:
+  # Space-time-stratified case-crossover; controls share these strata with the case day
+  control_strata: [municipality, year, month, day_of_week]
+  lags_days: [0, 1, 2, 3]
+
+inputs:
+  # Paths relative to Data/Input (see Data/README.md)
+  cr2met_tmax: CR2MET/CR2MET_tmax_v2.5_day_COM_TS_1980_2021.csv
+  cr2met_tmin: CR2MET/CR2MET_tmin_v2.5_day_COM_TS_1980_2021.csv
+  sinca_opr: SINCA/1_04_daily_interpolated_opr.csv
+  sinca_all: SINCA/1_04_daily_interpolated_all.csv
+  deis_deaths: null   # TO ADD: file name of the DEIS deaths database

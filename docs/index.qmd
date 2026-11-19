@@ -1,0 +1,26 @@
+---
+title: "Heatwaves, ozone and mortality in Santiago, Chile"
+subtitle: "Combined effect of extreme temperature and ozone on mortality: evidence from Chile"
+number-sections: false
+toc: false
+---
+
+This site collects the reports of a study on whether simultaneous exposure to heatwaves and elevated ambient ozone has a combined effect on mortality in the urban municipalities of Santiago, Chile, during the warm seasons of 2009 to 2020.
+
+The study uses a space-time-stratified case-crossover design with conditional logistic regression. Code and documentation are in the project repository; the data are not distributed with it.
+
+## Reports
+
+| Stage | Report | Status |
+|-------|--------|--------|
+| 1 | Exposure data: quality control and spatiotemporal trends | In preparation |
+| 2 | Mortality data and case-crossover dataset | Planned |
+| 3 | Main models and additive interaction | Planned |
+| 4 | Sensitivity analyses and final technical report | Planned |
+
+## Project
+
+Principal investigator: Estela Blanco, Pontificia Universidad Católica de Chile.
+Data analysis: Amaru Agüero Jiménez.
+
+Funded by ANID FONDECYT 11240322.

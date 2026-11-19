@@ -1,0 +1,30 @@
+---
+title: "Exposure data: quality control and spatiotemporal trends"
+subtitle: "Stage 1"
+date: today
+---
+
+```{r}
+#| label: setup
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+```
+
+This report is a skeleton. Each section is filled from the datasets and tables written by the scripts in `Code/`; no analysis is run inside the report.
+
+## Data sources
+
+## Temperature and heatwave indicators
+
+## Ozone, PM2.5 and NO2
+
+## Temporal alignment of the sources
+
+## Single and compound exposure: trends by municipality
+
+## Session information
+
+```{r}
+#| label: session-info
+sessionInfo()
+```

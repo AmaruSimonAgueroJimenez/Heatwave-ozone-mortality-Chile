@@ -1,0 +1,25 @@
+# R and RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+.Renviron
+
+# Data: raw inputs and derived datasets stay out of the repository
+Data/Input/*
+Data/Derived/*
+!Data/Input/.gitkeep
+!Data/Derived/.gitkeep
+
+# Fitted model objects are large; tables and figures are tracked
+Output/Models/*
+!Output/Models/.gitkeep
+
+# Quarto working files
+/.quarto/
+docs/.quarto/
+*_cache/
+
+# Operating system and cloud-sync files
+.DS_Store
+Icon?
