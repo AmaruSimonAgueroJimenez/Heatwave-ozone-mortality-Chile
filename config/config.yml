@@ -3,46 +3,133 @@
 # Every script reads its parameters from this file through get_param() in
 # Code/00_setup.R. A parameter set to null stops any script that asks for it:
 # write the value here once the decision is made, never inside a script.
+#
+# Lines marked "TO CONFIRM" hold a working value taken from the analysis plan
+# or from the reference code. They are open decisions for the principal
+# investigator, not settled choices.
+#
+# Machine-specific paths go in config/local.yml (not tracked), which overrides
+# the entries of this file. See config/local.example.yml.
+
+paths:
+  input_root: Data/Input        # relative to the project root, or absolute
 
 study:
-  years: [2009, 2020]                    # first and last calendar year analysed
-  warm_season_months: [11, 12, 1, 2, 3]  # 1 November to 31 March (austral summer)
-  n_municipalities: 33                   # Santiago Province plus Puente Alto
+  years: [2009, 2020]                       # calendar years, both included
+  warm_season_months: [11, 12, 1, 2, 3]     # 1 November to 31 March
+  n_municipalities: 33                      # Santiago Province plus Puente Alto
+  municipalities_file: config/municipalities.csv
 
 temperature:
-  # CR2MET v2.5, daily series aggregated by municipality
-  percentile_reference_years: [1990, 2020]  # baseline period for the percentiles
-  percentile_thresholds: [90, 95, 99]       # percentiles of daily maximum temperature
-  absolute_threshold_celsius: 30            # alternative fixed threshold
-  min_consecutive_days: [2, 3, 4]           # heatwave duration definitions
-  include_ehf: true                         # Excess Heat Factor
-  percentile_season: null                   # TO DECIDE: "all_year" or "warm_season"
+  percentile_reference_years: [1990, 2020]
+  percentile_thresholds: [90, 95, 99]       # of daily maximum temperature
+  absolute_threshold_celsius: 30
+  min_consecutive_days: [2, 3, 4]
+  include_ehf: true
+  ehf_reference_percentile: 95              # of the daily mean temperature (TAD)
+  ehf_acclimatisation_days: 30
+  # "all_year" is what the reference code does (HeatWave_PretermBirth_Chile,
+  # 2.0 HW_process_data.R, warm-season filter commented out). The alternative
+  # is "warm_season".                                              TO CONFIRM
+  percentile_season: all_year
+  # The CR2MET municipal series have no 29 February. "interpolate" fills that
+  # day with the mean of 28 February and 1 March and flags it; "missing"
+  # leaves it empty, which also empties the heatwave indicators whose window
+  # includes it.                                                   TO CONFIRM
+  leap_day_handling: interpolate
 
 air_pollution:
-  # SINCA monitors, daily values interpolated to one point per municipality
   primary_pollutant: o3
   adjustment_pollutants: [pm25, no2]
-  series_version_main: opr          # operational period only; recommended by the data author, confirm with the PI
-  series_version_sensitivity: all   # also includes values modelled outside each monitor's operational period
-  interpolation_method: null        # TO DECIDE: "idw" or "ok" (ordinary kriging)
-  min_stations: null                # TO DECIDE: minimum number of monitors behind a municipality-day
-  ozone_exposure_definition: null   # TO DECIDE: what counts as elevated ozone
+  other_variables: [hum]                    # relative humidity, sensitivity analyses
+  series_version_main: opr                  # recommended by the data author
+  series_version_sensitivity: all
+  interpolation_methods: [idw, ok]          # both are kept in the exposure dataset
+  # Method used for the headline tables, maps and models. Working value. The
+  # leave-one-station-out validation (docs/03) gives ordinary kriging the
+  # lower error, clearly for the 24-hour mean and slightly for the MDA8.
+  #                                                                TO CONFIRM
+  interpolation_method_main: idw
+  # Ozone series used for the headline results:
+  #   o3      24-hour mean, delivered interpolated series
+  #   o3obs   24-hour mean rebuilt from the hourly SINCA records (Code/12)
+  #   o3mda8  daily maximum 8-hour mean, the metric named in the analysis
+  #           plan, rebuilt from the hourly SINCA records (Code/12)
+  # All three are kept in the exposure dataset.                    TO CONFIRM
+  ozone_series_main: o3
+  ozone_percentile_cutoffs: [50, 75, 90]
+  # Percentiles are computed within each municipality over the warm-season
+  # days of the study years.                                        TO CONFIRM
+  ozone_percentile_scope: municipality
+  # The interpolation needs at least 3 stations; a stricter filter can be set
+  # here.                                                           TO CONFIRM
+  min_stations: 3
+  # Ordinary kriging can return values below zero. "set_missing" turns them
+  # into missing values and counts them.                            TO CONFIRM
+  negative_values: set_missing
+
+interpolation:                              # parameters of the data author's model
+  idw_power: 2
+  idw_nmax: 5
+  idw_maxdist_m: 15000
+  ok_min_stations: 3
+  conf_level: 0.95
+  crs_epsg: 32719                           # WGS 84 / UTM zone 19S
+
+station_series:                             # rebuilt from the hourly SINCA records
+  stations_file: config/stations.csv        # SINCA code and name of each ozone station
+  hourly_file_pattern: "o3/horario/RM_%s_horario_2000-01-01_2026-09-03.csv"
+  # SINCA marks each hourly record as validated, preliminary or not validated.
+  # Only the listed statuses are used. Records never validated include periods
+  # of evident instrument failure (Independencia, February to December 2016).
+  #                                                                TO CONFIRM
+  accepted_status: [validated]
+  min_valid_hours_day: 12                   # for the 24-hour mean
+  mda8_min_hours_window: 6                  # of 8 hours
+  mda8_min_windows_day: 18                  # of 24 windows
+
+reanalysis:                                 # CAMS EAC4, comparison only
+  cell_size_degrees: 0.75
+  # Warm-season months are on summer time in Chile (UTC-3) in every study year.
+  utc_offset_hours: -3
+  afternoon_local_hours: [15, 18]           # 3-hourly values used as the daily peak
 
 mortality:
-  # DEIS deaths database (DEFUNCIONES), Ministry of Health of Chile
   years: [2009, 2020]
-  icd10_non_accidental: null    # TO DEFINE: ICD-10 codes or ranges
-  icd10_cardiopulmonary: null   # TO DEFINE: ICD-10 codes or ranges for each specific cause
+  # ICD-10 groups of the underlying cause, as written in the analysis plan.
+  cause_groups:
+    non_accidental: ["A00-R99"]
+    cardiovascular: ["I00-I99"]
+    ischemic_heart: ["I20-I25"]
+    acute_myocardial_infarction: ["I21-I22"]
+    hypertensive: ["I10-I15"]
+    cerebrovascular: ["I60-I69"]
+    ischemic_stroke: ["I63-I63"]
+    hemorrhagic_stroke: ["I60-I61"]
+    respiratory: ["J00-J99"]
+    copd: ["J41-J44"]
+    cardiopulmonary: ["I00-I99", "J00-J99"]
+  age_breaks: [0, 65, 85]                   # groups 0-64, 65-84 and 85 or more
+  age_labels: ["0-64", "65-84", "85+"]
 
 design:
-  # Space-time-stratified case-crossover; controls share these strata with the case day
   control_strata: [municipality, year, month, day_of_week]
   lags_days: [0, 1, 2, 3]
 
-inputs:
-  # Paths relative to Data/Input (see Data/README.md)
+models:
+  # Definitions used for the headline models; the full grid is also fitted.
+  heatwave_main: hw_p95_2d                  # TO CONFIRM
+  ozone_cutoff_main: 75                     # TO CONFIRM
+  conf_level: 0.95
+
+inputs:                                     # relative to paths: input_root
   cr2met_tmax: CR2MET/CR2MET_tmax_v2.5_day_COM_TS_1980_2021.csv
   cr2met_tmin: CR2MET/CR2MET_tmin_v2.5_day_COM_TS_1980_2021.csv
   sinca_opr: SINCA/1_04_daily_interpolated_opr.csv
   sinca_all: SINCA/1_04_daily_interpolated_all.csv
-  deis_deaths: null   # TO ADD: file name of the DEIS deaths database
+  municipality_shapes: SINCA_interpolation/municipalities_shape.RData
+  interpolation_locations: SINCA_interpolation/interpolation_locations.RData
+  station_series: SINCA_interpolation/imputed_series.RData
+  sinca_hourly_dir: SINCA_hourly
+  cams_eac4_dir: CAMS_EAC4
+  deis_deaths: DEIS/defunciones_RM_2009_2020_extracto.csv

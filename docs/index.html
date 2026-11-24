@@ -6,6 +6,8 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
+<meta name="author" content="Amaru Agüero Jiménez">
+<meta name="dcterms.date" content="2026-11-23">
 
 <title>Heatwaves, ozone and mortality in Santiago, Chile</title>
 <style>
@@ -18,6 +20,40 @@ ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
 width: 0.8em;
 margin: 0 0.8em 0.2em -1em;  vertical-align: middle;
+}
+
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+}
+pre.numberSource { margin-left: 3em; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
 }
 </style>
 
@@ -3045,15 +3081,52 @@ vertical-align: -.125em;
 
 </head>
 
-<body class="fullcontent">
+<body>
 
-<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
-
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article toc-left">
+<div id="quarto-sidebar-toc-left" class="sidebar toc-left">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#the-study" id="toc-the-study" class="nav-link active" data-scroll-target="#the-study">The study</a></li>
+  <li><a href="#reports" id="toc-reports" class="nav-link" data-scroll-target="#reports">Reports</a></li>
+  <li><a href="#data-in-one-paragraph" id="toc-data-in-one-paragraph" class="nav-link" data-scroll-target="#data-in-one-paragraph">Data in one paragraph</a></li>
+  <li><a href="#findings-of-the-data-checks" id="toc-findings-of-the-data-checks" class="nav-link" data-scroll-target="#findings-of-the-data-checks">Findings of the data checks</a></li>
+  <li><a href="#decisions-pending" id="toc-decisions-pending" class="nav-link" data-scroll-target="#decisions-pending">Decisions pending</a></li>
+  <li><a href="#deliverables" id="toc-deliverables" class="nav-link" data-scroll-target="#deliverables">Deliverables</a></li>
+  <li><a href="#reproducing-the-work" id="toc-reproducing-the-work" class="nav-link" data-scroll-target="#reproducing-the-work">Reproducing the work</a></li>
+  </ul>
+</nav>
+</div>
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar zindex-bottom">
+</div>
 <main class="content" id="quarto-document-content">
+<nav class="site-nav" aria-label="Project pages">
+  <a class="site-nav-home" href="index.html">Heatwaves, ozone and mortality in Santiago</a>
+  <span class="site-nav-group">R</span>
+  <a href="01_exposure_qc.html">1 Data checks</a>
+  <a href="02_exposure_trends.html">2 Maps and trends</a>
+  <a href="03_ozone_validation.html">3 Ozone validation</a>
+  <a href="04_mortality_case_crossover.html">4 Mortality</a>
+  <a href="05_models.html">5 Models</a>
+  <span class="site-nav-group">Python</span>
+  <a href="py_01_exposure.html">Exposure</a>
+  <a href="py_02_models.html">Models</a>
+</nav>
+<style>
+.site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1.1rem;
+padding: 0.6rem 1.2rem; background: #0d366b; font-size: 0.9rem; }
+.site-nav a { color: #ffffff; text-decoration: none; }
+.site-nav a:hover, .site-nav a:focus { text-decoration: underline; }
+.site-nav .site-nav-home { font-weight: 600; margin-right: 0.8rem; }
+.site-nav .site-nav-group { color: #9ec5f4; font-size: 0.75rem; letter-spacing: 0.06em;
+text-transform: uppercase; margin-left: 0.6rem; }
+</style>
 
 <header id="title-block-header" class="quarto-title-block default">
 <div class="quarto-title">
-<h1 class="title">Heatwaves, ozone and mortality in Santiago, Chile</h1>
+<div class="quarto-title-block"><div><h1 class="title">Heatwaves, ozone and mortality in Santiago, Chile</h1><button type="button" class="btn code-tools-button" id="quarto-code-tools-source"><i class="bi"></i> Code</button></div></div>
 <p class="subtitle lead">Combined effect of extreme temperature and ozone on mortality: evidence from Chile</p>
 </div>
 
@@ -3061,7 +3134,19 @@ vertical-align: -.125em;
 
 <div class="quarto-title-meta">
 
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Amaru Agüero Jiménez </p>
+          </div>
+  </div>
     
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">November 23, 2026</p>
+    </div>
+  </div>
   
     
   </div>
@@ -3071,51 +3156,188 @@ vertical-align: -.125em;
 </header>
 
 
-<p>This site collects the reports of a study on whether simultaneous exposure to heatwaves and elevated ambient ozone has a combined effect on mortality in the urban municipalities of Santiago, Chile, during the warm seasons of 2009 to 2020.</p>
-<p>The study uses a space-time-stratified case-crossover design with conditional logistic regression. Code and documentation are in the project repository; the data are not distributed with it.</p>
+<section id="the-study" class="level2">
+<h2 class="anchored" data-anchor-id="the-study">The study</h2>
+<p>Does a day that is both a heatwave day and a high-ozone day carry a risk of death larger than the sum of the two separate risks? The study answers it for the 33 urban municipalities of Santiago (Santiago Province plus Puente Alto) in the warm seasons, 1 November to 31 March, of 2009 to 2020, with a space-time-stratified case-crossover design and conditional logistic regression.</p>
+<p>Principal investigator: Estela Blanco, Pontificia Universidad Católica de Chile. Data analysis: Amaru Agüero Jiménez. Funded by ANID FONDECYT 11240322.</p>
+</section>
 <section id="reports" class="level2">
 <h2 class="anchored" data-anchor-id="reports">Reports</h2>
 <table class="caption-top table">
-<colgroup>
-<col style="width: 30%">
-<col style="width: 34%">
-<col style="width: 34%">
-</colgroup>
 <thead>
 <tr class="header">
-<th>Stage</th>
+<th></th>
 <th>Report</th>
-<th>Status</th>
+<th>Content</th>
 </tr>
 </thead>
 <tbody>
 <tr class="odd">
 <td>1</td>
-<td>Exposure data: quality control and spatiotemporal trends</td>
-<td>In preparation</td>
+<td><a href="01_exposure_qc.html">Exposure data: verification and quality control</a></td>
+<td>Coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series, codebook of the exposure dataset</td>
 </tr>
 <tr class="even">
 <td>2</td>
-<td>Mortality data and case-crossover dataset</td>
-<td>Planned</td>
+<td><a href="02_exposure_trends.html">Exposure: maps and time trends</a></td>
+<td>Municipal maps and time series of temperature, heatwaves, ozone and compound exposure, across the grid of definitions</td>
 </tr>
 <tr class="odd">
 <td>3</td>
-<td>Main models and additive interaction</td>
-<td>Planned</td>
+<td><a href="03_ozone_validation.html">Validation of the ozone exposure</a></td>
+<td>Station inputs against the hourly SINCA records, leave-one-station-out cross-validation of IDW and kriging, delivered against rebuilt municipal series, comparison with the CAMS reanalysis</td>
 </tr>
 <tr class="even">
 <td>4</td>
-<td>Sensitivity analyses and final technical report</td>
-<td>Planned</td>
+<td><a href="04_mortality_case_crossover.html">Mortality and the case-crossover dataset</a></td>
+<td>Selection of deaths, mortality by cause, age, sex, municipality and year, structure of the analytic dataset, method checks</td>
+</tr>
+<tr class="odd">
+<td>5</td>
+<td><a href="05_models.html">Models</a></td>
+<td>Preliminary odds ratios and additive interaction with the working definitions</td>
+</tr>
+<tr class="even">
+<td></td>
+<td><a href="py_01_exposure.html">Exposure dataset in Python</a></td>
+<td>Independent rebuild of the exposure dataset, compared with R column by column</td>
+</tr>
+<tr class="odd">
+<td></td>
+<td><a href="py_02_models.html">Mortality and models in Python</a></td>
+<td>Independent rebuild of the selection of deaths, the referent days and the regression, compared with R</td>
+</tr>
+</tbody>
+</table>
+<p>Every report shows its code folded next to each result. The R scripts are in <a href="https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code"><code>Code/</code></a> of the repository.</p>
+</section>
+<section id="data-in-one-paragraph" class="level2">
+<h2 class="anchored" data-anchor-id="data-in-one-paragraph">Data in one paragraph</h2>
+<p>Temperature comes from CR2MET v2.5 (daily maximum and minimum by municipality). Ozone, PM2.5 and nitrogen dioxide come from the SINCA monitoring network, interpolated to one point per municipality by inverse distance weighting and ordinary kriging. Deaths come from the open records of the Department of Health Statistics and Information (DEIS). The exposure dataset has 144,738 municipality-days; the mortality dataset has 135,359 non-accidental deaths.</p>
+</section>
+<section id="findings-of-the-data-checks" class="level2">
+<h2 class="anchored" data-anchor-id="findings-of-the-data-checks">Findings of the data checks</h2>
+<p>These are the points a reader of the results should know before anything else. Each is documented in the report named.</p>
+<ol type="1">
+<li><strong>The reference heatwave script counts consecutive days across municipalities.</strong> In <code>HeatWave_PretermBirth_Chile</code>, the lag that defines “consecutive days” runs over rows of a table with all municipalities stacked. This project counts them within each municipality. (<a href="01_exposure_qc.html">Report 1</a>)</li>
+<li><strong>CR2MET has no 29 February.</strong> The three leap days of the study period are filled by interpolation and flagged. (<a href="01_exposure_qc.html">Report 1</a>)</li>
+<li><strong>The delivered ozone series understates the days with most ozone.</strong> Its station inputs were trimmed at the 99th percentile of the hourly values, which removes the afternoon peaks of the hottest days. (<a href="03_ozone_validation.html">Report 3</a>)</li>
+<li><strong>Part of the delivered ozone series rests on imputed station values.</strong> Station-days without a validated measurement were filled by imputation; the Independencia monitor, which failed in 2016, has no validated record for most of that year. (<a href="03_ozone_validation.html">Report 3</a>)</li>
+<li><strong>The plan names the daily maximum 8-hour mean (MDA8); the delivered series is a 24-hour mean.</strong> The exposure dataset now holds three ozone series: delivered, 24-hour mean rebuilt from validated records, and MDA8. (<a href="03_ozone_validation.html">Report 3</a>)</li>
+<li><strong>A fixed threshold of 30 °C is not comparable across municipalities</strong>, because CR2MET values are means over the whole municipal area, mountains included. (<a href="01_exposure_qc.html">Report 1</a>)</li>
+<li><strong>COVID-19 deaths fall outside non-accidental mortality as defined in the plan</strong> (A00-R99). (<a href="04_mortality_case_crossover.html">Report 4</a>)</li>
+</ol>
+</section>
+<section id="decisions-pending" class="level2">
+<h2 class="anchored" data-anchor-id="decisions-pending">Decisions pending</h2>
+<p>The pipeline runs on working values marked <code>TO CONFIRM</code> in <code>config/config.yml</code>. Changing one of them and running <code>Code/run_all.R</code> rebuilds everything.</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Decision</th>
+<th>Working value</th>
+<th>Alternatives</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Season of the temperature percentiles</td>
+<td>All days of the year</td>
+<td>Warm season only</td>
+</tr>
+<tr class="even">
+<td>29 February</td>
+<td>Interpolated</td>
+<td>Left missing</td>
+</tr>
+<tr class="odd">
+<td>Ozone series of the main analysis</td>
+<td>Delivered 24-hour mean (<code>o3</code>)</td>
+<td>Rebuilt 24-hour mean (<code>o3obs</code>), MDA8 (<code>o3mda8</code>)</td>
+</tr>
+<tr class="even">
+<td>Status of the hourly records</td>
+<td>Validated only</td>
+<td>Also preliminary and not validated</td>
+</tr>
+<tr class="odd">
+<td>Interpolation method of the main analysis</td>
+<td>IDW</td>
+<td>Ordinary kriging</td>
+</tr>
+<tr class="even">
+<td>Scope of the ozone percentiles</td>
+<td>Within each municipality</td>
+<td>Pooled</td>
+</tr>
+<tr class="odd">
+<td>Kriging values below zero</td>
+<td>Set to missing</td>
+<td>Truncated at zero</td>
+</tr>
+<tr class="even">
+<td>Headline definitions of the models</td>
+<td>Heatwave <code>hw_p95_2d</code>, ozone above the 75th percentile</td>
+<td>Any cell of the grid</td>
+</tr>
+<tr class="odd">
+<td>Months of the pandemic</td>
+<td>Kept, COVID-19 deaths outside the outcome</td>
+<td>Excluded</td>
 </tr>
 </tbody>
 </table>
 </section>
-<section id="project" class="level2">
-<h2 class="anchored" data-anchor-id="project">Project</h2>
-<p>Principal investigator: Estela Blanco, Pontificia Universidad Católica de Chile. Data analysis: Amaru Agüero Jiménez.</p>
-<p>Funded by ANID FONDECYT 11240322.</p>
+<section id="deliverables" class="level2">
+<h2 class="anchored" data-anchor-id="deliverables">Deliverables</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th></th>
+<th>Deliverable</th>
+<th>State</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>1</td>
+<td>Exposure dataset, quality control, maps and trends</td>
+<td>Done</td>
+</tr>
+<tr class="even">
+<td>2</td>
+<td>Clean deaths dataset, case-crossover dataset, mortality tables</td>
+<td>Done</td>
+</tr>
+<tr class="odd">
+<td>3</td>
+<td>Models, additive interaction, subgroups, attributable burden</td>
+<td>Models preliminary; burden not started</td>
+</tr>
+<tr class="even">
+<td>4</td>
+<td>Sensitivity analyses, publication figures, final report</td>
+<td>Not started</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="reproducing-the-work" class="level2">
+<h2 class="anchored" data-anchor-id="reproducing-the-work">Reproducing the work</h2>
+<pre><code>Rscript Code/run_all.R</code></pre>
+<p>runs the scripts in order, the method checks and the reports. Inputs and their sources are listed in <code>Data/README.md</code>; none of the data are in the repository.</p>
+<!-- -->
+
 </section>
 
 </main>
@@ -3207,6 +3429,57 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
       container: window.document.getElementById('quarto-embedded-source-code-modal')
     });
     clipboardModal.on('success', onCopySuccess);
+  }
+  const viewSource = window.document.getElementById('quarto-view-source') ||
+                     window.document.getElementById('quarto-code-tools-source');
+  if (viewSource) {
+    const sourceUrl = viewSource.getAttribute("data-quarto-source-url");
+    viewSource.addEventListener("click", function(e) {
+      if (sourceUrl) {
+        // rstudio viewer pane
+        if (/\bcapabilities=\b/.test(window.location)) {
+          window.open(sourceUrl);
+        } else {
+          window.location.href = sourceUrl;
+        }
+      } else {
+        const modal = new bootstrap.Modal(document.getElementById('quarto-embedded-source-code-modal'));
+        modal.show();
+      }
+      return false;
+    });
+  }
+  function toggleCodeHandler(show) {
+    return function(e) {
+      const detailsSrc = window.document.querySelectorAll(".cell > details > .sourceCode");
+      for (let i=0; i<detailsSrc.length; i++) {
+        const details = detailsSrc[i].parentElement;
+        if (show) {
+          details.open = true;
+        } else {
+          details.removeAttribute("open");
+        }
+      }
+      const cellCodeDivs = window.document.querySelectorAll(".cell > .sourceCode");
+      const fromCls = show ? "hidden" : "unhidden";
+      const toCls = show ? "unhidden" : "hidden";
+      for (let i=0; i<cellCodeDivs.length; i++) {
+        const codeDiv = cellCodeDivs[i];
+        if (codeDiv.classList.contains(fromCls)) {
+          codeDiv.classList.remove(fromCls);
+          codeDiv.classList.add(toCls);
+        } 
+      }
+      return false;
+    }
+  }
+  const hideAllCode = window.document.getElementById("quarto-hide-all-code");
+  if (hideAllCode) {
+    hideAllCode.addEventListener("click", toggleCodeHandler(false));
+  }
+  const showAllCode = window.document.getElementById("quarto-show-all-code");
+  if (showAllCode) {
+    showAllCode.addEventListener("click", toggleCodeHandler(true));
   }
     var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
     var mailtoRegex = new RegExp(/^mailto:/);
@@ -3536,7 +3809,133 @@ window.document.addEventListener("DOMContentLoaded", function (event) {
     }
   }
 });
-</script>
+</script><div class="modal fade" id="quarto-embedded-source-code-modal" tabindex="-1" aria-labelledby="quarto-embedded-source-code-modal-label" aria-hidden="true"><div class="modal-dialog modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title" id="quarto-embedded-source-code-modal-label">Source Code</h5><button class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class>
+<div class="sourceCode" id="cb2" data-shortcodes="false"><pre class="sourceCode markdown code-with-copy"><code class="sourceCode markdown"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="an">title:</span><span class="co"> &quot;Heatwaves, ozone and mortality in Santiago, Chile&quot;</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="an">subtitle:</span><span class="co"> &quot;Combined effect of extreme temperature and ozone on mortality: evidence from Chile&quot;</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="an">author:</span><span class="co"> &quot;Amaru Agüero Jiménez&quot;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="an">date:</span><span class="co"> today</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="an">number-sections:</span><span class="co"> false</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="co">---</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="in">```{r}</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="co">#| label: setup</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="co">#| include: false</span></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;Code&quot;</span>, <span class="st">&quot;00_setup.R&quot;</span>))</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(knitr)</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">knitr.kable.NA =</span> <span class="st">&quot;&quot;</span>)</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>read_table <span class="ot">&lt;-</span> <span class="cf">function</span>(file) <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_tables, file), <span class="at">encoding =</span> <span class="st">&quot;UTF-8&quot;</span>)</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>fmt <span class="ot">&lt;-</span> <span class="cf">function</span>(x, <span class="at">digits =</span> <span class="dv">0</span>) <span class="fu">formatC</span>(x, <span class="at">format =</span> <span class="st">&quot;f&quot;</span>, <span class="at">digits =</span> digits, <span class="at">big.mark =</span> <span class="st">&quot;,&quot;</span>)</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>flow <span class="ot">&lt;-</span> <span class="fu">read_table</span>(<span class="st">&quot;mortality_flow.csv&quot;</span>)</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>alignment <span class="ot">&lt;-</span> <span class="fu">read_table</span>(<span class="st">&quot;exposure_alignment.csv&quot;</span>)</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="fu">## The study</span></span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>Does a day that is both a heatwave day and a high-ozone day carry a risk of</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>death larger than the sum of the two separate risks? The study answers it for</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>the 33 urban municipalities of Santiago (Santiago Province plus Puente Alto)</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>in the warm seasons, 1 November to 31 March, of 2009 to 2020, with a</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>space-time-stratified case-crossover design and conditional logistic</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>regression.</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>Principal investigator: Estela Blanco, Pontificia Universidad Católica de</span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>Chile. Data analysis: Amaru Agüero Jiménez. Funded by ANID FONDECYT 11240322.</span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a><span class="fu">## Reports</span></span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>| | Report | Content |</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>|---|---|---|</span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>| 1 | <span class="co">[</span><span class="ot">Exposure data: verification and quality control</span><span class="co">](01_exposure_qc.html)</span> | Coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series, codebook of the exposure dataset |</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>| 2 | <span class="co">[</span><span class="ot">Exposure: maps and time trends</span><span class="co">](02_exposure_trends.html)</span> | Municipal maps and time series of temperature, heatwaves, ozone and compound exposure, across the grid of definitions |</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>| 3 | <span class="co">[</span><span class="ot">Validation of the ozone exposure</span><span class="co">](03_ozone_validation.html)</span> | Station inputs against the hourly SINCA records, leave-one-station-out cross-validation of IDW and kriging, delivered against rebuilt municipal series, comparison with the CAMS reanalysis |</span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>| 4 | <span class="co">[</span><span class="ot">Mortality and the case-crossover dataset</span><span class="co">](04_mortality_case_crossover.html)</span> | Selection of deaths, mortality by cause, age, sex, municipality and year, structure of the analytic dataset, method checks |</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>| 5 | <span class="co">[</span><span class="ot">Models</span><span class="co">](05_models.html)</span> | Preliminary odds ratios and additive interaction with the working definitions |</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>| | <span class="co">[</span><span class="ot">Exposure dataset in Python</span><span class="co">](py_01_exposure.html)</span> | Independent rebuild of the exposure dataset, compared with R column by column |</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>| | <span class="co">[</span><span class="ot">Mortality and models in Python</span><span class="co">](py_02_models.html)</span> | Independent rebuild of the selection of deaths, the referent days and the regression, compared with R |</span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a>Every report shows its code folded next to each result. The R scripts are in</span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">`Code/`</span><span class="co">](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code)</span></span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>of the repository.</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a><span class="fu">## Data in one paragraph</span></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>Temperature comes from CR2MET v2.5 (daily maximum and minimum by municipality).</span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>Ozone, PM2.5 and nitrogen dioxide come from the SINCA monitoring network,</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>interpolated to one point per municipality by inverse distance weighting and</span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>ordinary kriging. Deaths come from the open records of the Department of Health</span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>Statistics and Information (DEIS). The exposure dataset has</span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a><span class="in">`r fmt(alignment$rows[1])`</span> municipality-days; the mortality dataset has</span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a><span class="in">`r fmt(flow[step == &quot;Non-accidental cause (A00-R99)&quot;, deaths])`</span> non-accidental</span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a>deaths.</span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a><span class="fu">## Findings of the data checks</span></span>
+<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a>These are the points a reader of the results should know before anything else.</span>
+<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>Each is documented in the report named.</span>
+<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**The reference heatwave script counts consecutive days across</span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a>   municipalities.** In <span class="in">`HeatWave_PretermBirth_Chile`</span>, the lag that defines</span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>   &quot;consecutive days&quot; runs over rows of a table with all municipalities</span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>   stacked. This project counts them within each municipality.</span>
+<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Report 1</span><span class="co">](01_exposure_qc.html)</span>)</span>
+<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**CR2MET has no 29 February.** The three leap days of the study period are</span>
+<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a>   filled by interpolation and flagged. (<span class="co">[</span><span class="ot">Report 1</span><span class="co">](01_exposure_qc.html)</span>)</span>
+<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**The delivered ozone series understates the days with most ozone.** Its</span>
+<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a>   station inputs were trimmed at the 99th percentile of the hourly values,</span>
+<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a>   which removes the afternoon peaks of the hottest days.</span>
+<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Report 3</span><span class="co">](03_ozone_validation.html)</span>)</span>
+<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**Part of the delivered ozone series rests on imputed station values.**</span>
+<span id="cb2-79"><a href="#cb2-79" aria-hidden="true" tabindex="-1"></a>   Station-days without a validated measurement were filled by imputation; the</span>
+<span id="cb2-80"><a href="#cb2-80" aria-hidden="true" tabindex="-1"></a>   Independencia monitor, which failed in 2016, has no validated record for</span>
+<span id="cb2-81"><a href="#cb2-81" aria-hidden="true" tabindex="-1"></a>   most of that year. (<span class="co">[</span><span class="ot">Report 3</span><span class="co">](03_ozone_validation.html)</span>)</span>
+<span id="cb2-82"><a href="#cb2-82" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>**The plan names the daily maximum 8-hour mean (MDA8); the delivered series</span>
+<span id="cb2-83"><a href="#cb2-83" aria-hidden="true" tabindex="-1"></a>   is a 24-hour mean.** The exposure dataset now holds three ozone series:</span>
+<span id="cb2-84"><a href="#cb2-84" aria-hidden="true" tabindex="-1"></a>   delivered, 24-hour mean rebuilt from validated records, and MDA8.</span>
+<span id="cb2-85"><a href="#cb2-85" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Report 3</span><span class="co">](03_ozone_validation.html)</span>)</span>
+<span id="cb2-86"><a href="#cb2-86" aria-hidden="true" tabindex="-1"></a><span class="ss">6. </span>**A fixed threshold of 30 °C is not comparable across municipalities**,</span>
+<span id="cb2-87"><a href="#cb2-87" aria-hidden="true" tabindex="-1"></a>   because CR2MET values are means over the whole municipal area, mountains</span>
+<span id="cb2-88"><a href="#cb2-88" aria-hidden="true" tabindex="-1"></a>   included. (<span class="co">[</span><span class="ot">Report 1</span><span class="co">](01_exposure_qc.html)</span>)</span>
+<span id="cb2-89"><a href="#cb2-89" aria-hidden="true" tabindex="-1"></a><span class="ss">7. </span>**COVID-19 deaths fall outside non-accidental mortality as defined in the</span>
+<span id="cb2-90"><a href="#cb2-90" aria-hidden="true" tabindex="-1"></a>   plan** (A00-R99). (<span class="co">[</span><span class="ot">Report 4</span><span class="co">](04_mortality_case_crossover.html)</span>)</span>
+<span id="cb2-91"><a href="#cb2-91" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-92"><a href="#cb2-92" aria-hidden="true" tabindex="-1"></a><span class="fu">## Decisions pending</span></span>
+<span id="cb2-93"><a href="#cb2-93" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-94"><a href="#cb2-94" aria-hidden="true" tabindex="-1"></a>The pipeline runs on working values marked <span class="in">`TO CONFIRM`</span> in</span>
+<span id="cb2-95"><a href="#cb2-95" aria-hidden="true" tabindex="-1"></a><span class="in">`config/config.yml`</span>. Changing one of them and running <span class="in">`Code/run_all.R`</span> rebuilds</span>
+<span id="cb2-96"><a href="#cb2-96" aria-hidden="true" tabindex="-1"></a>everything.</span>
+<span id="cb2-97"><a href="#cb2-97" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-98"><a href="#cb2-98" aria-hidden="true" tabindex="-1"></a>| Decision | Working value | Alternatives |</span>
+<span id="cb2-99"><a href="#cb2-99" aria-hidden="true" tabindex="-1"></a>|---|---|---|</span>
+<span id="cb2-100"><a href="#cb2-100" aria-hidden="true" tabindex="-1"></a>| Season of the temperature percentiles | All days of the year | Warm season only |</span>
+<span id="cb2-101"><a href="#cb2-101" aria-hidden="true" tabindex="-1"></a>| 29 February | Interpolated | Left missing |</span>
+<span id="cb2-102"><a href="#cb2-102" aria-hidden="true" tabindex="-1"></a>| Ozone series of the main analysis | Delivered 24-hour mean (<span class="in">`o3`</span>) | Rebuilt 24-hour mean (<span class="in">`o3obs`</span>), MDA8 (<span class="in">`o3mda8`</span>) |</span>
+<span id="cb2-103"><a href="#cb2-103" aria-hidden="true" tabindex="-1"></a>| Status of the hourly records | Validated only | Also preliminary and not validated |</span>
+<span id="cb2-104"><a href="#cb2-104" aria-hidden="true" tabindex="-1"></a>| Interpolation method of the main analysis | IDW | Ordinary kriging |</span>
+<span id="cb2-105"><a href="#cb2-105" aria-hidden="true" tabindex="-1"></a>| Scope of the ozone percentiles | Within each municipality | Pooled |</span>
+<span id="cb2-106"><a href="#cb2-106" aria-hidden="true" tabindex="-1"></a>| Kriging values below zero | Set to missing | Truncated at zero |</span>
+<span id="cb2-107"><a href="#cb2-107" aria-hidden="true" tabindex="-1"></a>| Headline definitions of the models | Heatwave <span class="in">`hw_p95_2d`</span>, ozone above the 75th percentile | Any cell of the grid |</span>
+<span id="cb2-108"><a href="#cb2-108" aria-hidden="true" tabindex="-1"></a>| Months of the pandemic | Kept, COVID-19 deaths outside the outcome | Excluded |</span>
+<span id="cb2-109"><a href="#cb2-109" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-110"><a href="#cb2-110" aria-hidden="true" tabindex="-1"></a><span class="fu">## Deliverables</span></span>
+<span id="cb2-111"><a href="#cb2-111" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-112"><a href="#cb2-112" aria-hidden="true" tabindex="-1"></a>| | Deliverable | State |</span>
+<span id="cb2-113"><a href="#cb2-113" aria-hidden="true" tabindex="-1"></a>|---|---|---|</span>
+<span id="cb2-114"><a href="#cb2-114" aria-hidden="true" tabindex="-1"></a>| 1 | Exposure dataset, quality control, maps and trends | Done |</span>
+<span id="cb2-115"><a href="#cb2-115" aria-hidden="true" tabindex="-1"></a>| 2 | Clean deaths dataset, case-crossover dataset, mortality tables | Done |</span>
+<span id="cb2-116"><a href="#cb2-116" aria-hidden="true" tabindex="-1"></a>| 3 | Models, additive interaction, subgroups, attributable burden | Models preliminary; burden not started |</span>
+<span id="cb2-117"><a href="#cb2-117" aria-hidden="true" tabindex="-1"></a>| 4 | Sensitivity analyses, publication figures, final report | Not started |</span>
+<span id="cb2-118"><a href="#cb2-118" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-119"><a href="#cb2-119" aria-hidden="true" tabindex="-1"></a><span class="fu">## Reproducing the work</span></span>
+<span id="cb2-120"><a href="#cb2-120" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-121"><a href="#cb2-121" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb2-122"><a href="#cb2-122" aria-hidden="true" tabindex="-1"></a><span class="in">Rscript Code/run_all.R</span></span>
+<span id="cb2-123"><a href="#cb2-123" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb2-124"><a href="#cb2-124" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-125"><a href="#cb2-125" aria-hidden="true" tabindex="-1"></a>runs the scripts in order, the method checks and the reports. Inputs and their</span>
+<span id="cb2-126"><a href="#cb2-126" aria-hidden="true" tabindex="-1"></a>sources are listed in <span class="in">`Data/README.md`</span>; none of the data are in the repository.</span>
+</code><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal><i class="bi"></i></button></pre></div>
+</div></div></div></div></div>
 </div> <!-- /content -->
 
 

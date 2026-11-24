@@ -1,0 +1,226 @@
+---
+title: "Mortality and the case-crossover dataset"
+subtitle: "Deliverable 2 · Heatwaves, ozone and mortality in Santiago, 2009-2020"
+author: "Amaru Agüero Jiménez"
+date: today
+---
+
+```{r}
+#| label: setup
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+library(sf)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+fmt <- function(x, digits = 0) formatC(x, format = "f", digits = digits, big.mark = ",")
+deaths <- fread(derived_path("deaths_clean.csv"), encoding = "UTF-8")
+deaths[, date := as.Date(date)]
+non_accidental <- deaths[non_accidental == TRUE]
+cause_labels <- c(
+  non_accidental = "Non-accidental (A00-R99)", cardiopulmonary = "Cardiopulmonary (I00-I99, J00-J99)",
+  cardiovascular = "Cardiovascular (I00-I99)", ischemic_heart = "Ischemic heart disease (I20-I25)",
+  acute_myocardial_infarction = "Acute myocardial infarction (I21-I22)",
+  hypertensive = "Hypertensive diseases (I10-I15)", cerebrovascular = "Cerebrovascular (I60-I69)",
+  ischemic_stroke = "Ischemic stroke (I63)", hemorrhagic_stroke = "Hemorrhagic stroke (I60-I61)",
+  respiratory = "Respiratory (J00-J99)", copd = "COPD (J41-J44)"
+)
+stopifnot(setequal(names(cause_labels), names(get_param("mortality", "cause_groups"))))
+```
+
+## Scope
+
+Deaths of residents of the 33 study municipalities during the warm seasons
+(1 November to 31 March) of 2009 to 2020, from the death records of the
+Department of Health Statistics and Information (DEIS), and the analytic
+dataset of the space-time-stratified case-crossover design.
+
+```{r}
+#| eval: false
+#| file: ../Code/20_mortality_deis.R
+#| code-summary: "Code/20_mortality_deis.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/21_case_crossover_dataset.R
+#| code-summary: "Code/21_case_crossover_dataset.R"
+```
+
+## Source and selection
+
+The input is the official DEIS file of deaths 1990-2023 (open data, one row per
+death, with date, sex, age, municipality of residence and underlying cause).
+The scripts read either that file or an extract of it with the same columns;
+the run behind this page used the extract of residents of the Metropolitan
+Region who died in 2009-2020.
+
+```{r}
+#| label: tbl-flow
+#| tbl-cap: "Records kept at each step of the selection."
+flow <- read_table("mortality_flow.csv")
+kable(flow, format.args = list(big.mark = ","), col.names = c("Step", "Deaths"))
+```
+
+```{r}
+#| label: tbl-excluded
+#| tbl-cap: "Deaths outside non-accidental mortality (A00-R99), by calendar year."
+excluded <- read_table("mortality_excluded_causes.csv")
+kable(dcast(excluded, cause ~ year, value.var = "deaths", fill = 0),
+      format.args = list(big.mark = ","))
+```
+
+Non-accidental mortality follows the analysis plan: underlying cause between
+A00 and R99. Two groups fall outside it. Injuries, coded S00-T98 with their
+external cause in a second field, are the exclusion the plan asks for. The U
+codes are COVID-19 (U07.1 and U07.2): `r fmt(excluded[grepl("COVID", cause), sum(deaths)])`
+deaths in the warm-season months of 2020 are therefore not part of the
+non-accidental series. Whether the months of the pandemic stay in the analysis
+is a decision for the principal investigator.
+
+`r fmt(deaths[age_years > 110, .N])` records have a recorded age above 110 years;
+they stay in the oldest age group.
+
+## Mortality by cause, age and sex
+
+```{r}
+#| label: tbl-cause-year
+#| tbl-cap: "Deaths in the warm-season months by cause group and calendar year. The groups overlap: each sub-cause is part of its parent group."
+cause_year <- read_table("mortality_by_cause_year.csv")
+cause_wide <- dcast(cause_year, cause ~ year, value.var = "deaths", fill = 0)
+cause_wide[, Total := rowSums(.SD), .SDcols = setdiff(names(cause_wide), "cause")]
+cause_wide <- cause_wide[match(names(cause_labels), cause)]
+cause_wide[, cause := cause_labels[cause]]
+kable(cause_wide, format.args = list(big.mark = ","))
+```
+
+```{r}
+#| label: tbl-age-sex
+#| tbl-cap: "Non-accidental deaths by age group and sex, warm seasons 2009-2020."
+age_sex <- dcast(non_accidental[, .N, by = .(age_group, sex)], age_group ~ sex, value.var = "N", fill = 0)
+age_sex[, total := rowSums(.SD), .SDcols = setdiff(names(age_sex), "age_group")]
+age_sex[, share := 100 * total / sum(total)]
+kable(age_sex, digits = 1, format.args = list(big.mark = ","))
+```
+
+```{r}
+#| label: fig-daily
+#| fig-cap: "Non-accidental deaths per day in the 33 municipalities by month of the warm season and calendar year."
+#| fig-height: 3.8
+daily <- non_accidental[, .N, by = date]
+monthly <- daily[, .(per_day = mean(N)), by = .(year = year(date), month = month(date))]
+monthly[, month := factor(month, levels = c(1, 2, 3, 11, 12),
+                          labels = c("Jan", "Feb", "Mar", "Nov", "Dec"))]
+ggplot(monthly, aes(year, per_day)) +
+  geom_line(colour = ramp_blue[6], linewidth = 0.8) +
+  geom_point(colour = ramp_blue[6], size = 1.6) +
+  facet_wrap(~month, nrow = 1) +
+  scale_x_continuous(breaks = c(2010, 2015, 2020)) +
+  labs(x = NULL, y = "Deaths per day")
+```
+
+### By municipality
+
+```{r}
+#| label: fig-map-deaths
+#| fig-cap: "Non-accidental deaths per year in the warm-season months, 2009-2020, and share of deaths at ages 85 or more."
+#| fig-height: 4.8
+#| fig-width: 9
+shapes_env <- new.env()
+load(input_path("municipality_shapes"), envir = shapes_env)
+shapes <- shapes_env$comunas_santiago[, "cod_comuna"]
+shapes$com <- as.integer(shapes$cod_comuna)
+by_mun <- non_accidental[, .(per_year = .N / 12, oldest = 100 * mean(age_group == "85+", na.rm = TRUE)),
+                         by = com]
+map_values <- function(column, title, legend, hue, digits) {
+  ggplot(merge(shapes, by_mun, by = "com")) +
+    geom_sf(aes(fill = .data[[column]]), colour = "#ffffff", linewidth = 0.25) +
+    scale_fill_magnitude(name = legend, hue = hue,
+                         labels = function(x) formatC(x, format = "f", digits = digits)) +
+    labs(title = title) + theme_map()
+}
+patchwork::wrap_plots(
+  map_values("per_year", "Deaths per year", "Deaths", "blue", 0),
+  map_values("oldest", "Deaths at ages 85 or more", "%", "orange", 0), ncol = 2
+)
+```
+
+```{r}
+#| label: tbl-municipality
+#| tbl-cap: "Non-accidental deaths by municipality and calendar year, warm-season months."
+mun_year <- read_table("mortality_by_municipality_year.csv")
+mun_wide <- dcast(mun_year[group == "non_accidental"], municipality ~ year, value.var = "deaths", fill = 0)
+kableExtra::scroll_box(
+  kableExtra::kable_styling(kable(mun_wide, format = "html", format.args = list(big.mark = ",")),
+                            bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "380px"
+)
+```
+
+The same table for every cause group, age group and sex is in
+`Output/Tables/mortality_by_municipality_year.csv`. Counts are deaths, not
+rates: population denominators enter with the attributable burden
+(deliverable 3).
+
+## The case-crossover dataset
+
+Each non-accidental death is one stratum. Its referent days are all the days of
+the same municipality, calendar year, month and day of the week: the day of
+death and three or four control days. A month is either inside or outside the
+warm season, so every control day is a warm-season day.
+
+```{r}
+#| label: tbl-cc
+#| tbl-cap: "Size of the case-crossover dataset."
+kable(read_table("case_crossover_summary.csv"), format.args = list(big.mark = ","),
+      col.names = c("Item", "Value"))
+```
+
+```{r}
+#| label: cc-example
+cc <- fread(derived_path("case_crossover.csv"), encoding = "UTF-8", nrows = 9)
+kable(cc[, .(id, com, case_date, date, case, sex, age_group, icd3)],
+      caption = "First rows of case_crossover.csv: two deaths with their referent days.")
+```
+
+`Data/Derived/case_crossover.csv` holds the structure and the attributes of
+each death (sex, age group, cause flags). `Data/Derived/exposure_lagged.csv`
+holds, for every municipality-day used as a referent, each exposure variable at
+lags 0 to 3 (`<variable>_lag<k>` is the exposure k days earlier). Joining the two
+on municipality and day gives the model dataset for any definition:
+
+```r
+library(survival)
+cc <- fread("Data/Derived/case_crossover.csv")
+lagged <- fread("Data/Derived/exposure_lagged.csv")
+model_data <- merge(cc, lagged[, .(com, date, hw = hw_p95_2d_lag1, oz = o3_idw_gt_p75_lag1)],
+                    by = c("com", "date"))
+clogit(case ~ hw + oz + strata(id), data = model_data)
+```
+
+## Method checks
+
+`tests/test_methods.R` checks the functions behind this page and the next
+against independent calculations: the referent selection, the lagging, the
+equivalence between the fit on individual records and the faster weighted fit
+used in the models, the recovery of known odds ratios from simulated deaths,
+and the delta-method intervals against `msm::deltamethod`.
+
+```{r}
+#| label: method-checks
+#| code-summary: "Run tests/test_methods.R"
+checks <- system2(file.path(R.home("bin"), "Rscript"),
+                  shQuote(here::here("tests", "test_methods.R")), stdout = TRUE, stderr = TRUE)
+if (!is.null(attr(checks, "status"))) stop(paste(checks, collapse = "\n"))
+cat(grep("^ok|^All|simulated", checks, value = TRUE), sep = "\n")
+```
+
+```{r}
+#| label: session
+#| code-summary: "Session information"
+sessionInfo()
+```

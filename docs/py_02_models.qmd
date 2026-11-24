@@ -1,0 +1,343 @@
+---
+title: "Mortality, case-crossover design and models in Python"
+subtitle: "Independent replication of the R pipeline · Heatwaves, ozone and mortality in Santiago, 2009-2020"
+author: "Amaru Agüero Jiménez"
+date: today
+jupyter: python3
+---
+
+## Purpose
+
+This page repeats in Python the steps that lead from the death records to the
+odds ratios: the selection of deaths, the referent days of the
+space-time-stratified case-crossover design, the conditional logistic
+regression and the additive interaction measures. The regression is written
+here from its likelihood, not taken from a library, so that the comparison with
+`survival::coxph` in R is between two independent implementations.
+
+The exposures come from the dataset built on the
+[Python exposure page](py_01_exposure.html). Results are compared with the R
+tables at each step.
+
+```{python}
+#| label: setup
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import yaml
+from scipy import stats
+
+ROOT = next(p for p in [Path.cwd(), *Path.cwd().parents] if (p / "_quarto.yml").exists())
+DERIVED = ROOT / "Data" / "Derived"
+TABLES = ROOT / "Output" / "Tables"
+
+
+def merge_config(base, override):
+    """Entries of `override` replace those of `base`, level by level."""
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge_config(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+CFG = yaml.safe_load((ROOT / "config" / "config.yml").read_text(encoding="utf-8"))
+LOCAL = ROOT / "config" / "local.yml"
+if LOCAL.exists():
+    CFG = merge_config(CFG, yaml.safe_load(LOCAL.read_text(encoding="utf-8")))
+
+
+def get_param(*keys):
+    """Read one parameter; stop when it is missing or still null."""
+    value = CFG
+    for key in keys:
+        if not isinstance(value, dict) or value.get(key) is None:
+            raise KeyError(f"Parameter {'$'.join(keys)} is not set in config/config.yml")
+        value = value[key]
+    return value
+
+
+def input_path(name):
+    root = Path(get_param("paths", "input_root")).expanduser()
+    if not root.is_absolute():
+        root = ROOT / root
+    path = Path(get_param("inputs", name)).expanduser()
+    if not path.is_absolute():
+        path = root / path
+    if not path.exists():
+        raise FileNotFoundError(f"Input '{name}' not found: {path}")
+    return path
+
+
+municipalities = pd.read_csv(ROOT / get_param("study", "municipalities_file"))
+STUDY_YEARS = get_param("mortality", "years")
+WARM_MONTHS = get_param("study", "warm_season_months")
+LAGS = get_param("design", "lags_days")
+CONF = get_param("models", "conf_level")
+Z = stats.norm.ppf(1 - (1 - CONF) / 2)
+```
+
+## Deaths
+
+```{python}
+#| label: deaths
+needed = ["FECHA_DEF", "SEXO_NOMBRE", "EDAD_TIPO", "EDAD_CANT", "COD_COMUNA", "DIAG1"]
+raw = pd.read_csv(input_path("deis_deaths"), sep=";", encoding="latin-1", usecols=needed,
+                  parse_dates=["FECHA_DEF"])
+flow = [("Records in the input file", len(raw))]
+deaths = raw.dropna(subset=["FECHA_DEF", "COD_COMUNA"])
+flow.append(("With date of death and municipality of residence", len(deaths)))
+deaths = deaths[deaths["COD_COMUNA"].isin(municipalities["code"])]
+flow.append(("Residents of the 33 study municipalities", len(deaths)))
+deaths = deaths[deaths["FECHA_DEF"].dt.year.between(*STUDY_YEARS)]
+flow.append((f"Died in {STUDY_YEARS[0]}-{STUDY_YEARS[1]}", len(deaths)))
+deaths = deaths[deaths["FECHA_DEF"].dt.month.isin(WARM_MONTHS)].copy()
+flow.append(("Died in the warm season (1 November to 31 March)", len(deaths)))
+
+assert deaths["DIAG1"].str.fullmatch(r"[A-Z][0-9]{2}[0-9X]").all()
+
+
+def icd_key(code3):
+    """Numeric key of a three-character ICD-10 category: 'I21' -> 821."""
+    return (code3.str[0].map(lambda c: ord(c) - ord("A")) * 100 + code3.str[1:3].astype(int))
+
+
+key = icd_key(deaths["DIAG1"].str[:3])
+for group, ranges in get_param("mortality", "cause_groups").items():
+    hit = pd.Series(False, index=deaths.index)
+    for item in ranges:
+        low, high = item.split("-")
+        hit |= key.between(icd_key(pd.Series([low]))[0], icd_key(pd.Series([high]))[0])
+    deaths[group] = hit
+
+age = deaths["EDAD_CANT"].where(deaths["EDAD_TIPO"] == 1, 0.0).where(deaths["EDAD_TIPO"].isin([1, 2, 3, 4]))
+breaks = get_param("mortality", "age_breaks") + [np.inf]
+deaths["age_group"] = pd.cut(age, breaks, labels=get_param("mortality", "age_labels"), right=False)
+deaths["sex"] = deaths["SEXO_NOMBRE"].map({"Hombre": "male", "Mujer": "female"}).fillna("undetermined")
+deaths = deaths.rename(columns={"FECHA_DEF": "date", "COD_COMUNA": "com"})
+flow.append(("Non-accidental cause (A00-R99)", int(deaths["non_accidental"].sum())))
+flow.append(("Non-accidental, with age and sex recorded",
+             int((deaths["non_accidental"] & deaths["age_group"].notna()
+                  & (deaths["sex"] != "undetermined")).sum())))
+flow = pd.DataFrame(flow, columns=["step", "deaths_python"])
+```
+
+```{python}
+#| label: tbl-flow
+#| tbl-cap: "Selection of deaths: Python against R."
+flow_r = pd.read_csv(TABLES / "mortality_flow.csv").rename(columns={"deaths": "deaths_r"})
+flow = flow.merge(flow_r, on="step", validate="1:1")
+flow["equal"] = flow["deaths_python"] == flow["deaths_r"]
+assert len(flow) == len(flow_r)
+flow.style.format({"deaths_python": "{:,}", "deaths_r": "{:,}"}).hide(axis="index")
+```
+
+```{python}
+#| label: tbl-causes
+#| tbl-cap: "Deaths by cause group over the 12 years: Python against R."
+groups = list(get_param("mortality", "cause_groups"))
+causes = pd.DataFrame({"cause": groups, "deaths_python": [int(deaths[g].sum()) for g in groups]})
+causes_r = (pd.read_csv(TABLES / "mortality_by_cause_year.csv").groupby("cause")["deaths"].sum()
+            .rename("deaths_r").reset_index())
+causes = causes.merge(causes_r, on="cause", validate="1:1")
+causes["equal"] = causes["deaths_python"] == causes["deaths_r"]
+causes.style.format({"deaths_python": "{:,}", "deaths_r": "{:,}"}).hide(axis="index")
+```
+
+## Referent days
+
+Deaths of the same municipality and day share their referent days, so the
+dataset is built with one row per municipality, day of death and referent day,
+weighted by the number of deaths.
+
+```{python}
+#| label: referents
+def referent_table(selected):
+    """One row per municipality, day of death and referent day (same year,
+    month and day of the week), with the number of deaths as weight."""
+    strata = (selected.groupby(["com", "date"]).size().rename("n_deaths").reset_index()
+              .rename(columns={"date": "case_date"}))
+    strata["stratum"] = np.arange(len(strata))
+    calendar = pd.DataFrame({"date": pd.date_range(strata["case_date"].min() - pd.Timedelta(days=31),
+                                                   strata["case_date"].max() + pd.Timedelta(days=31))})
+    for frame, column in ((strata, "case_date"), (calendar, "date")):
+        frame["yr"], frame["mo"], frame["wd"] = (frame[column].dt.year, frame[column].dt.month,
+                                                 frame[column].dt.dayofweek)
+    table = strata.merge(calendar, on=["yr", "mo", "wd"])
+    table["case"] = (table["date"] == table["case_date"]).astype(int)
+    per_stratum = table.groupby("stratum")["case"].agg(["size", "sum"])
+    assert (per_stratum["sum"] == 1).all() and per_stratum["size"].isin([4, 5]).all()
+    return table.sort_values(["stratum", "date"]).reset_index(drop=True)
+
+
+non_accidental = deaths[deaths["non_accidental"]]
+referents = referent_table(non_accidental)
+summary = pd.read_csv(TABLES / "case_crossover_summary.csv").set_index("item")["value"]
+size = pd.DataFrame({
+    "item": ["Deaths (strata)", "Rows (deaths and referent days)"],
+    "python": [int(referents.loc[referents["case"] == 1, "n_deaths"].sum()),
+               int(referents["n_deaths"].sum())],
+})
+size["r"] = size["item"].map(summary).astype(int)
+size["equal"] = size["python"] == size["r"]
+size.style.format({"python": "{:,}", "r": "{:,}"}).hide(axis="index")
+```
+
+## Conditional logistic regression from its likelihood
+
+For a stratum $s$ with $w_s$ deaths, day of death $c$ and referent days $j$, the
+conditional log-likelihood is
+
+$$\ell(\beta) = \sum_s w_s \left[ x_{sc}^\top \beta - \log \sum_{j \in s} \exp(x_{sj}^\top \beta) \right].$$
+
+The function below maximises it by Newton-Raphson and returns the estimates
+with their covariance matrix (the inverse of the observed information).
+
+```{python}
+#| label: clogit
+def conditional_logit(x, case, stratum, weight):
+    """Weighted conditional logistic regression, one case per stratum.
+    Rows must be sorted by stratum; `weight` is constant within a stratum."""
+    x = np.asarray(x, dtype=float)
+    starts = np.flatnonzero(np.r_[True, stratum[1:] != stratum[:-1]])
+    counts = np.diff(np.r_[starts, len(stratum)])
+    w = weight[starts]
+    x_case = x[case == 1]
+    assert len(x_case) == len(starts)
+    beta = np.zeros(x.shape[1])
+    for _ in range(50):
+        eta = x @ beta
+        eta = eta - np.repeat(np.maximum.reduceat(eta, starts), counts)
+        e = np.exp(eta)
+        p = e / np.repeat(np.add.reduceat(e, starts), counts)
+        mean_x = np.add.reduceat(p[:, None] * x, starts, axis=0)
+        score = (w[:, None] * (x_case - mean_x)).sum(axis=0)
+        second = np.add.reduceat(p[:, None, None] * x[:, :, None] * x[:, None, :], starts, axis=0)
+        information = np.einsum("s,sjk->jk", w, second - mean_x[:, :, None] * mean_x[:, None, :])
+        step = np.linalg.solve(information, score)
+        beta = beta + step
+        if np.max(np.abs(step)) < 1e-10:
+            return beta, np.linalg.inv(information)
+    raise RuntimeError("Newton-Raphson did not converge")
+
+
+def additive_interaction(beta, covariance):
+    """REOI, AP and S from the log odds ratios of E10, E01 and E11 (delta method)."""
+    or10, or01, or11 = np.exp(beta)
+    se = lambda g: float(np.sqrt(np.array(g) @ covariance @ np.array(g)))
+    reoi = or11 - or10 - or01 + 1
+    ap = reoi / or11
+    single, joint = or10 + or01 - 2, or11 - 1
+    s = joint / single
+    rows = [("REOI", reoi, reoi - Z * se([-or10, -or01, or11]), reoi + Z * se([-or10, -or01, or11])),
+            ("AP", ap, *(ap + sign * Z * se([-or10 / or11, -or01 / or11, (or10 + or01 - 1) / or11])
+                         for sign in (-1, 1)))]
+    if joint > 0 and single > 0:
+        se_log_s = se([-or10 / single, -or01 / single, or11 / joint])
+        rows.append(("S", s, np.exp(np.log(s) - Z * se_log_s), np.exp(np.log(s) + Z * se_log_s)))
+    else:
+        rows.append(("S", s, np.nan, np.nan))
+    return pd.DataFrame(rows, columns=["measure", "estimate", "low", "high"])
+```
+
+## Models for non-accidental mortality
+
+```{python}
+#| label: models
+heatwave = get_param("models", "heatwave_main")
+ozone_flag = (f"{get_param('air_pollution', 'ozone_series_main')}_"
+              f"{get_param('air_pollution', 'interpolation_method_main')}_gt_p"
+              f"{get_param('models', 'ozone_cutoff_main')}")
+exposure = pd.read_csv(DERIVED / "py_exposure_2009_2020.csv", parse_dates=["date"],
+                       usecols=["com", "date", heatwave, ozone_flag])
+
+terms = {"heatwave": ["hw"], "ozone": ["oz"], "joint": ["hw", "oz"], "compound": ["e10", "e01", "e11"]}
+or_rows, interaction_rows = [], []
+for lag in LAGS:
+    lagged = exposure.rename(columns={heatwave: "hw", ozone_flag: "oz"}).copy()
+    lagged["date"] = lagged["date"] + pd.Timedelta(days=lag)      # exposure `lag` days earlier
+    data = referents.merge(lagged, on=["com", "date"], how="left", validate="m:1")
+    # Strata with an unknown exposure on any referent day are left out, as in R
+    incomplete = data.loc[data[["hw", "oz"]].isna().any(axis=1), "stratum"].unique()
+    data = data[~data["stratum"].isin(incomplete)].sort_values(["stratum", "date"])
+    data["e10"] = ((data["hw"] == 1) & (data["oz"] == 0)).astype(float)
+    data["e01"] = ((data["hw"] == 0) & (data["oz"] == 1)).astype(float)
+    data["e11"] = ((data["hw"] == 1) & (data["oz"] == 1)).astype(float)
+    arrays = (data["case"].to_numpy(), data["stratum"].to_numpy(), data["n_deaths"].to_numpy(float))
+    for model, columns in terms.items():
+        beta, covariance = conditional_logit(data[columns].to_numpy(), *arrays)
+        se = np.sqrt(np.diag(covariance))
+        for term, b, s in zip(columns, beta, se):
+            or_rows.append({"lag": lag, "model": model, "term": term, "or": np.exp(b),
+                            "or_low": np.exp(b - Z * s), "or_high": np.exp(b + Z * s)})
+        if model == "compound":
+            interaction_rows.append(additive_interaction(beta, covariance).assign(lag=lag))
+odds_python = pd.DataFrame(or_rows)
+interaction_python = pd.concat(interaction_rows, ignore_index=True)
+```
+
+```{python}
+#| label: tbl-or
+#| tbl-cap: "Odds ratios for non-accidental mortality, working definitions: Python (own Newton-Raphson) against R (survival::coxph)."
+odds_r = pd.read_csv(TABLES / "models_main_or.csv")
+odds_r = odds_r[(odds_r["outcome"] == "non_accidental") & (odds_r["subgroup"] == "all")]
+odds = odds_python.merge(odds_r[["lag", "model", "term", "or", "or_low", "or_high"]],
+                         on=["lag", "model", "term"], suffixes=("_python", "_r"), validate="1:1")
+assert len(odds) == len(odds_python) == len(odds_r)
+def relative_difference(python_values, r_values):
+    """Largest difference by row, relative to the R value when it exceeds one."""
+    return (np.abs(python_values - r_values) / np.maximum(1, np.abs(r_values))).max(axis=1)
+
+
+odds["difference"] = relative_difference(odds[["or_python", "or_low_python", "or_high_python"]].to_numpy(),
+                                         odds[["or_r", "or_low_r", "or_high_r"]].to_numpy())
+(odds[["lag", "model", "term", "or_python", "or_low_python", "or_high_python", "or_r", "difference"]]
+ .style.format({c: "{:.4f}" for c in ["or_python", "or_low_python", "or_high_python", "or_r"]}
+               | {"difference": "{:.1e}"}).hide(axis="index"))
+```
+
+```{python}
+#| label: tbl-interaction
+#| tbl-cap: "Additive interaction for non-accidental mortality: Python against R."
+interaction_r = pd.read_csv(TABLES / "models_main_interaction.csv")
+interaction_r = interaction_r[(interaction_r["outcome"] == "non_accidental")
+                              & (interaction_r["subgroup"] == "all")]
+interaction = interaction_python.merge(
+    interaction_r[["lag", "measure", "estimate", "low", "high"]], on=["lag", "measure"],
+    suffixes=("_python", "_r"), validate="1:1")
+assert len(interaction) == len(interaction_python)
+assert (interaction["low_python"].isna() == interaction["low_r"].isna()).all()
+interaction["difference"] = relative_difference(
+    interaction[["estimate_python", "low_python", "high_python"]].fillna(0).to_numpy(),
+    interaction[["estimate_r", "low_r", "high_r"]].fillna(0).to_numpy())
+(interaction[["lag", "measure", "estimate_python", "low_python", "high_python", "estimate_r", "difference"]]
+ .style.format({c: "{:.4f}" for c in ["estimate_python", "low_python", "high_python", "estimate_r"]}
+               | {"difference": "{:.1e}"}).hide(axis="index"))
+```
+
+```{python}
+#| label: verdict
+worst = max(odds["difference"].max(), interaction["difference"].max())
+counts_equal = bool(flow["equal"].all() and causes["equal"].all() and size["equal"].all())
+print(f"Counts of deaths and referent rows equal to R: {counts_equal}")
+print(f"Largest relative difference with R across odds ratios, interaction measures "
+      f"and their confidence limits: {worst:.1e}")
+```
+
+The estimates above are the same preliminary results discussed on the
+[R models page](05_models.html); this page only establishes that two
+independent implementations reach them.
+
+## Software
+
+```{python}
+#| label: versions
+import platform
+import scipy
+print("Python", platform.python_version())
+for module in (np, pd, scipy, yaml):
+    print(module.__name__, module.__version__)
+```

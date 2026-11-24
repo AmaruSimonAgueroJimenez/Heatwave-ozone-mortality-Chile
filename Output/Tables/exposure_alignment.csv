@@ -1,0 +1,4 @@
+source,rows,municipalities,first_date,last_date,days,repeated_keys,keys_missing_from_grid,keys_outside_grid
+temperature (CR2MET),144738,33,2008-12-29,2020-12-31,4386,0,0,0
+"air pollution (SINCA, delivered)",144738,33,2008-12-29,2020-12-31,4386,0,0,0
+ozone rebuilt from hourly records,144738,33,2008-12-29,2020-12-31,4386,0,0,0

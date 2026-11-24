@@ -1,26 +1,124 @@
 ---
 title: "Heatwaves, ozone and mortality in Santiago, Chile"
 subtitle: "Combined effect of extreme temperature and ozone on mortality: evidence from Chile"
+author: "Amaru Agüero Jiménez"
+date: today
 number-sections: false
-toc: false
 ---
 
-This site collects the reports of a study on whether simultaneous exposure to heatwaves and elevated ambient ozone has a combined effect on mortality in the urban municipalities of Santiago, Chile, during the warm seasons of 2009 to 2020.
+```{r}
+#| label: setup
+#| include: false
+source(here::here("Code", "00_setup.R"))
+library(knitr)
+options(knitr.kable.NA = "")
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+fmt <- function(x, digits = 0) formatC(x, format = "f", digits = digits, big.mark = ",")
+flow <- read_table("mortality_flow.csv")
+alignment <- read_table("exposure_alignment.csv")
+```
 
-The study uses a space-time-stratified case-crossover design with conditional logistic regression. Code and documentation are in the project repository; the data are not distributed with it.
+## The study
+
+Does a day that is both a heatwave day and a high-ozone day carry a risk of
+death larger than the sum of the two separate risks? The study answers it for
+the 33 urban municipalities of Santiago (Santiago Province plus Puente Alto)
+in the warm seasons, 1 November to 31 March, of 2009 to 2020, with a
+space-time-stratified case-crossover design and conditional logistic
+regression.
+
+Principal investigator: Estela Blanco, Pontificia Universidad Católica de
+Chile. Data analysis: Amaru Agüero Jiménez. Funded by ANID FONDECYT 11240322.
 
 ## Reports
 
-| Stage | Report | Status |
-|-------|--------|--------|
-| 1 | Exposure data: quality control and spatiotemporal trends | In preparation |
-| 2 | Mortality data and case-crossover dataset | Planned |
-| 3 | Main models and additive interaction | Planned |
-| 4 | Sensitivity analyses and final technical report | Planned |
+| | Report | Content |
+|---|---|---|
+| 1 | [Exposure data: verification and quality control](01_exposure_qc.html) | Coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series, codebook of the exposure dataset |
+| 2 | [Exposure: maps and time trends](02_exposure_trends.html) | Municipal maps and time series of temperature, heatwaves, ozone and compound exposure, across the grid of definitions |
+| 3 | [Validation of the ozone exposure](03_ozone_validation.html) | Station inputs against the hourly SINCA records, leave-one-station-out cross-validation of IDW and kriging, delivered against rebuilt municipal series, comparison with the CAMS reanalysis |
+| 4 | [Mortality and the case-crossover dataset](04_mortality_case_crossover.html) | Selection of deaths, mortality by cause, age, sex, municipality and year, structure of the analytic dataset, method checks |
+| 5 | [Models](05_models.html) | Preliminary odds ratios and additive interaction with the working definitions |
+| | [Exposure dataset in Python](py_01_exposure.html) | Independent rebuild of the exposure dataset, compared with R column by column |
+| | [Mortality and models in Python](py_02_models.html) | Independent rebuild of the selection of deaths, the referent days and the regression, compared with R |
 
-## Project
+Every report shows its code folded next to each result. The R scripts are in
+[`Code/`](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code)
+of the repository.
 
-Principal investigator: Estela Blanco, Pontificia Universidad Católica de Chile.
-Data analysis: Amaru Agüero Jiménez.
+## Data in one paragraph
 
-Funded by ANID FONDECYT 11240322.
+Temperature comes from CR2MET v2.5 (daily maximum and minimum by municipality).
+Ozone, PM2.5 and nitrogen dioxide come from the SINCA monitoring network,
+interpolated to one point per municipality by inverse distance weighting and
+ordinary kriging. Deaths come from the open records of the Department of Health
+Statistics and Information (DEIS). The exposure dataset has
+`r fmt(alignment$rows[1])` municipality-days; the mortality dataset has
+`r fmt(flow[step == "Non-accidental cause (A00-R99)", deaths])` non-accidental
+deaths.
+
+## Findings of the data checks
+
+These are the points a reader of the results should know before anything else.
+Each is documented in the report named.
+
+1. **The reference heatwave script counts consecutive days across
+   municipalities.** In `HeatWave_PretermBirth_Chile`, the lag that defines
+   "consecutive days" runs over rows of a table with all municipalities
+   stacked. This project counts them within each municipality.
+   ([Report 1](01_exposure_qc.html))
+2. **CR2MET has no 29 February.** The three leap days of the study period are
+   filled by interpolation and flagged. ([Report 1](01_exposure_qc.html))
+3. **The delivered ozone series understates the days with most ozone.** Its
+   station inputs were trimmed at the 99th percentile of the hourly values,
+   which removes the afternoon peaks of the hottest days.
+   ([Report 3](03_ozone_validation.html))
+4. **Part of the delivered ozone series rests on imputed station values.**
+   Station-days without a validated measurement were filled by imputation; the
+   Independencia monitor, which failed in 2016, has no validated record for
+   most of that year. ([Report 3](03_ozone_validation.html))
+5. **The plan names the daily maximum 8-hour mean (MDA8); the delivered series
+   is a 24-hour mean.** The exposure dataset now holds three ozone series:
+   delivered, 24-hour mean rebuilt from validated records, and MDA8.
+   ([Report 3](03_ozone_validation.html))
+6. **A fixed threshold of 30 °C is not comparable across municipalities**,
+   because CR2MET values are means over the whole municipal area, mountains
+   included. ([Report 1](01_exposure_qc.html))
+7. **COVID-19 deaths fall outside non-accidental mortality as defined in the
+   plan** (A00-R99). ([Report 4](04_mortality_case_crossover.html))
+
+## Decisions pending
+
+The pipeline runs on working values marked `TO CONFIRM` in
+`config/config.yml`. Changing one of them and running `Code/run_all.R` rebuilds
+everything.
+
+| Decision | Working value | Alternatives |
+|---|---|---|
+| Season of the temperature percentiles | All days of the year | Warm season only |
+| 29 February | Interpolated | Left missing |
+| Ozone series of the main analysis | Delivered 24-hour mean (`o3`) | Rebuilt 24-hour mean (`o3obs`), MDA8 (`o3mda8`) |
+| Status of the hourly records | Validated only | Also preliminary and not validated |
+| Interpolation method of the main analysis | IDW | Ordinary kriging |
+| Scope of the ozone percentiles | Within each municipality | Pooled |
+| Kriging values below zero | Set to missing | Truncated at zero |
+| Headline definitions of the models | Heatwave `hw_p95_2d`, ozone above the 75th percentile | Any cell of the grid |
+| Months of the pandemic | Kept, COVID-19 deaths outside the outcome | Excluded |
+
+## Deliverables
+
+| | Deliverable | State |
+|---|---|---|
+| 1 | Exposure dataset, quality control, maps and trends | Done |
+| 2 | Clean deaths dataset, case-crossover dataset, mortality tables | Done |
+| 3 | Models, additive interaction, subgroups, attributable burden | Models preliminary; burden not started |
+| 4 | Sensitivity analyses, publication figures, final report | Not started |
+
+## Reproducing the work
+
+```
+Rscript Code/run_all.R
+```
+
+runs the scripts in order, the method checks and the reports. Inputs and their
+sources are listed in `Data/README.md`; none of the data are in the repository.

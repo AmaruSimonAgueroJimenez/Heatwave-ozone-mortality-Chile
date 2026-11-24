@@ -1,0 +1,17 @@
+version,variable,method,rows,missing_delivered,negative_set_missing,below_min_stations_set_missing
+opr,o3,idw,144738,0,0,0
+opr,o3,ok,144738,0,40,0
+opr,pm25,idw,144738,0,0,0
+opr,pm25,ok,144738,0,5,0
+opr,no2,idw,144738,26,0,0
+opr,no2,ok,144738,0,3,0
+opr,hum,idw,144738,0,0,0
+opr,hum,ok,144738,0,0,0
+all,o3,idw,144738,0,0,0
+all,o3,ok,144738,0,20,0
+all,pm25,idw,144738,0,0,0
+all,pm25,ok,144738,0,1,0
+all,no2,idw,144738,0,0,0
+all,no2,ok,144738,0,1,0
+all,hum,idw,144738,0,0,0
+all,hum,ok,144738,0,0,0

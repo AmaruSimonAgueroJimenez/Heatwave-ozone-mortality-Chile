@@ -1,0 +1,67 @@
+com,municipality,p90,p95,p99,season_rule
+13101,Santiago,31.287,32.297,34.08332,all_year
+13101,Santiago,32.49,33.343,34.7614,warm_season
+13102,Cerrillos,31.908,32.949,34.79878,all_year
+13102,Cerrillos,33.143,34.027,35.5248,warm_season
+13103,Cerro Navia,32.3336,33.3531,35.17286,all_year
+13103,Cerro Navia,33.538,34.375,35.9108,warm_season
+13104,Conchalí,31.6062,32.59,34.39358,all_year
+13104,Conchalí,32.806,33.639,35.1086,warm_season
+13105,El Bosque,31.089,32.1253,34.02986,all_year
+13105,El Bosque,32.362,33.236,34.6768,warm_season
+13106,Estación Central,31.993,32.9946,34.85116,all_year
+13106,Estación Central,33.227,34.08,35.5552,warm_season
+13107,Huechuraba,30.1298,31.107,32.875,all_year
+13107,Huechuraba,31.314,32.12,33.65,warm_season
+13108,Independencia,31.3758,32.367,34.16916,all_year
+13108,Independencia,32.588,33.418,34.8816,warm_season
+13109,La Cisterna,31.1272,32.1483,34.01786,all_year
+13109,La Cisterna,32.365,33.225,34.6506,warm_season
+13110,La Florida,27.8332,28.8323,30.68372,all_year
+13110,La Florida,29.056,29.897,31.4834,warm_season
+13111,La Granja,30.7814,31.8213,33.69244,all_year
+13111,La Granja,32.022,32.875,34.3608,warm_season
+13112,La Pintana,30.4474,31.4859,33.38274,all_year
+13112,La Pintana,31.703,32.565,34.0368,warm_season
+13113,La Reina,29.816,30.787,32.61744,all_year
+13113,La Reina,31.021,31.853,33.3764,warm_season
+13114,Las Condes,26.6802,27.6413,29.42572,all_year
+13114,Las Condes,27.874,28.73,30.1932,warm_season
+13115,Lo Barnechea,19.218,20.2566,22.03586,all_year
+13115,Lo Barnechea,20.475,21.274,22.8348,warm_season
+13116,Lo Espejo,31.5166,32.5406,34.39786,all_year
+13116,Lo Espejo,32.757,33.626,35.0846,warm_season
+13117,Lo Prado,31.9082,32.9219,34.73688,all_year
+13117,Lo Prado,33.104,33.968,35.469,warm_season
+13118,Macul,31.2284,32.2423,34.05244,all_year
+13118,Macul,32.469,33.275,34.8134,warm_season
+13119,Maipú,31.858,32.9033,34.74272,all_year
+13119,Maipú,33.116,33.993,35.5126,warm_season
+13120,Ñuñoa,31.0398,32.0386,33.825,all_year
+13120,Ñuñoa,32.271,33.077,34.604,warm_season
+13121,Pedro Aguirre Cerda,31.7822,32.783,34.67318,all_year
+13121,Pedro Aguirre Cerda,33.022,33.877,35.289,warm_season
+13122,Peñalolén,27.8218,28.7983,30.65372,all_year
+13122,Peñalolén,29.035,29.866,31.439,warm_season
+13123,Providencia,30.6552,31.6366,33.41658,all_year
+13123,Providencia,31.857,32.668,34.2132,warm_season
+13124,Pudahuel,31.1756,32.1989,34.04988,all_year
+13124,Pudahuel,32.411,33.275,34.8044,warm_season
+13125,Quilicura,32.281,33.2533,35.10658,all_year
+13125,Quilicura,33.481,34.321,35.8194,warm_season
+13126,Quinta Normal,31.868,32.8783,34.72186,all_year
+13126,Quinta Normal,33.11,33.938,35.4166,warm_season
+13127,Recoleta,30.6216,31.6163,33.40002,all_year
+13127,Recoleta,31.835,32.638,34.1456,warm_season
+13128,Renca,32.1436,33.1486,34.9973,all_year
+13128,Renca,33.36,34.19,35.7068,warm_season
+13129,San Joaquín,31.1366,32.1583,33.99672,all_year
+13129,San Joaquín,32.373,33.205,34.687,warm_season
+13130,San Miguel,31.1922,32.1983,34.06004,all_year
+13130,San Miguel,32.415,33.272,34.6746,warm_season
+13131,San Ramón,30.917,31.951,33.84822,all_year
+13131,San Ramón,32.159,33.022,34.4692,warm_season
+13132,Vitacura,29.5904,30.5656,32.32674,all_year
+13132,Vitacura,30.776,31.605,33.1088,warm_season
+13201,Puente Alto,29.6026,30.6193,32.4589,all_year
+13201,Puente Alto,30.843,31.667,33.3014,warm_season

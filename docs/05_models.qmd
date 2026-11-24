@@ -1,0 +1,389 @@
+---
+title: "Models: heatwaves, ozone and their interaction"
+subtitle: "Deliverable 3, preliminary · Heatwaves, ozone and mortality in Santiago, 2009-2020"
+author: "Amaru Agüero Jiménez"
+date: today
+---
+
+```{r}
+#| label: setup
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+fmt <- function(x, digits = 2) formatC(x, format = "f", digits = digits, big.mark = ",")
+ci <- function(estimate, low, high, digits = 2) {
+  sprintf("%s (%s to %s)", fmt(estimate, digits), fmt(low, digits), fmt(high, digits))
+}
+# Very wide confidence limits are written as long integers; read them as numbers
+as_numeric_columns <- function(dt, pattern) {
+  columns <- grep(pattern, names(dt), value = TRUE)
+  dt[, (columns) := lapply(.SD, as.numeric), .SDcols = columns]
+  dt[]
+}
+# The synergy index has no useful interval when the sum of the two single
+# excesses is close to zero
+ci_measure <- function(measure, estimate, low, high, digits = 3) {
+  ifelse(measure == "S" & (is.na(low) | high / low > 1e3),
+         paste(fmt(estimate, digits), "(interval not informative)"),
+         ci(estimate, low, high, digits))
+}
+main_or <- read_table("models_main_or.csv")
+main_int <- as_numeric_columns(read_table("models_main_interaction.csv"), "^(estimate|low|high)$")
+grid <- as_numeric_columns(read_table("models_grid.csv"), "^(estimate|low|high|or)_")
+continuous <- read_table("models_ozone_continuous.csv")
+
+heatwave_main <- get_param("models", "heatwave_main")
+ozone_flag_main <- unique(main_or$ozone)
+cause_labels <- c(
+  non_accidental = "Non-accidental", cardiopulmonary = "Cardiopulmonary",
+  cardiovascular = "Cardiovascular", ischemic_heart = "Ischemic heart disease",
+  acute_myocardial_infarction = "Acute myocardial infarction",
+  hypertensive = "Hypertensive diseases", cerebrovascular = "Cerebrovascular",
+  ischemic_stroke = "Ischemic stroke", hemorrhagic_stroke = "Hemorrhagic stroke",
+  respiratory = "Respiratory", copd = "COPD"
+)
+term_labels <- c(hw = "Heatwave", oz = "High ozone", e10 = "Heatwave only (E10)",
+                 e01 = "High ozone only (E01)", e11 = "Heatwave and high ozone (E11)")
+model_labels <- c(heatwave = "Heatwave alone", ozone = "Ozone alone", joint = "Joint",
+                  compound = "Compound categories")
+```
+
+::: {.callout-warning}
+## Preliminary
+
+These results use working definitions that the principal investigator has not
+confirmed: heatwave `r heatwave_main`, high ozone `r ozone_flag_main` (the
+delivered 24-hour mean, whose limits are shown on the
+[ozone validation page](03_ozone_validation.html)). They show that the pipeline
+runs from the death records to the interaction measures and how much the
+answer depends on the definitions. They are not findings to cite.
+:::
+
+## Models
+
+For each death the day of death is compared with the control days of the same
+municipality, year, month and day of the week, by conditional logistic
+regression, at single-day lags 0 to 3:
+
+| Model | Linear predictor | Reads as |
+|---|---|---|
+| Heatwave alone | β₁ HW | Odds ratio of death on a heatwave day |
+| Ozone alone | β₂ O3high | Odds ratio of death on a high-ozone day |
+| Joint | β₁ HW + β₂ O3high | Each exposure adjusted for the other |
+| Compound categories | β₁₀ E10 + β₀₁ E01 + β₁₁ E11 | Heatwave only, high ozone only and both, against neither |
+
+Additive interaction comes from the compound model:
+REOI = OR₁₁ − OR₁₀ − OR₀₁ + 1, AP = REOI / OR₁₁ and
+S = (OR₁₁ − 1) / [(OR₁₀ − 1) + (OR₀₁ − 1)], with delta-method intervals.
+The multiplicative ratio OR₁₁ / (OR₁₀ × OR₀₁) is reported next to them.
+
+```{r}
+#| eval: false
+#| file: ../Code/30_models_main.R
+#| code-summary: "Code/30_models_main.R"
+```
+
+```{r}
+#| label: warnings
+n_warn_main <- main_or[!is.na(fit_warnings) & fit_warnings != "", .N]
+n_warn_grid <- grid[!is.na(fit_warnings) & fit_warnings != "", .N]
+not_estimable <- grid[estimable == FALSE, .N]
+```
+
+Fits with a warning from the optimiser: `r n_warn_main` rows of the headline
+tables and `r n_warn_grid` cells of the definition grid. Grid cells without
+deaths in one exposure category, where no odds ratio exists: `r not_estimable`.
+
+## Non-accidental mortality, working definitions
+
+```{r}
+#| label: tbl-main
+#| tbl-cap: "Odds ratios (95% confidence interval) for non-accidental mortality by lag."
+headline <- main_or[outcome == "non_accidental" & subgroup == "all"]
+headline[, `:=`(Model = model_labels[model], Term = term_labels[term],
+                value = ci(or, or_low, or_high, 3))]
+kable(dcast(headline, factor(Model, levels = model_labels) + factor(Term, levels = term_labels) ~ lag,
+            value.var = "value"),
+      col.names = c("Model", "Term", "Lag 0", "Lag 1", "Lag 2", "Lag 3"))
+```
+
+```{r}
+#| label: tbl-main-deaths
+#| tbl-cap: "Deaths by exposure category on the lagged day, non-accidental mortality."
+counts <- unique(headline[, .(lag, deaths, deaths_e00, deaths_e10, deaths_e01, deaths_e11)])
+kable(counts, format.args = list(big.mark = ","),
+      col.names = c("Lag", "Deaths", "Neither (E00)", "Heatwave only (E10)",
+                    "High ozone only (E01)", "Both (E11)"))
+```
+
+```{r}
+#| label: fig-main
+#| fig-cap: "Odds ratios of non-accidental death by exposure category and lag, compound model. Bars are 95% confidence intervals."
+#| fig-height: 3.6
+compound <- headline[model == "compound"]
+compound[, category := factor(c(e10 = "Heatwave only", e01 = "High ozone only",
+                                e11 = "Heatwave and high ozone")[term],
+                              levels = c("High ozone only", "Heatwave only", "Heatwave and high ozone"))]
+ggplot(compound, aes(factor(lag), or, colour = category)) +
+  geom_hline(yintercept = 1, colour = ink$axis) +
+  geom_pointrange(aes(ymin = or_low, ymax = or_high), position = position_dodge(width = 0.5),
+                  linewidth = 0.6, size = 0.35) +
+  scale_colour_manual(values = colour_compound[levels(compound$category)]) +
+  labs(x = "Lag (days)", y = "Odds ratio", colour = NULL)
+```
+
+```{r}
+#| label: headline-text
+h0 <- headline[lag == 0 & model == "compound"]
+r_main <- main_int[outcome == "non_accidental" & subgroup == "all" & measure == "REOI"]
+```
+
+With the working definitions, on the day of exposure the odds of non-accidental
+death are `r ci(h0[term == "e10", or], h0[term == "e10", or_low], h0[term == "e10", or_high])`
+times higher on heatwave-only days, `r ci(h0[term == "e01", or], h0[term == "e01", or_low], h0[term == "e01", or_high])`
+on high-ozone-only days and `r ci(h0[term == "e11", or], h0[term == "e11", or_low], h0[term == "e11", or_high])`
+on days with both, each against days with neither. The associations weaken
+with the lag. The joint odds ratio is close to what the two single excesses
+add up to: the REOI interval includes zero at every lag
+(`r paste(sprintf("lag %d: %s", r_main$lag, ci(r_main$estimate, r_main$low, r_main$high, 3)), collapse = "; ")`).
+
+### Additive interaction
+
+```{r}
+#| label: tbl-interaction
+#| tbl-cap: "Interaction between heatwave and high ozone, non-accidental and cardiopulmonary mortality. REOI and AP have null value 0; S and the multiplicative ratio have null value 1."
+interaction <- main_int[outcome %in% c("non_accidental", "cardiopulmonary") & subgroup == "all"]
+interaction[, value := ci_measure(measure, estimate, low, high)]
+interaction[, Outcome := cause_labels[outcome]]
+kable(dcast(interaction, factor(Outcome, levels = cause_labels[1:2]) +
+              factor(measure, levels = c("REOI", "AP", "S", "multiplicative ratio")) ~ lag,
+            value.var = "value"),
+      col.names = c("Outcome", "Measure", "Lag 0", "Lag 1", "Lag 2", "Lag 3"))
+```
+
+## By cause of death
+
+```{r}
+#| label: fig-causes
+#| fig-cap: "Odds ratios by cause of death and exposure category, lags 0 and 1, compound model. Bars are 95% confidence intervals."
+#| fig-height: 6.2
+causes <- main_or[subgroup == "all" & model == "compound" & lag %in% 0:1]
+causes[, category := factor(c(e10 = "Heatwave only", e01 = "High ozone only",
+                              e11 = "Heatwave and high ozone")[term],
+                            levels = c("High ozone only", "Heatwave only", "Heatwave and high ozone"))]
+causes[, cause := factor(cause_labels[outcome], levels = rev(cause_labels))]
+ggplot(causes, aes(or, cause, colour = category)) +
+  geom_vline(xintercept = 1, colour = ink$axis) +
+  geom_pointrange(aes(xmin = or_low, xmax = or_high), position = position_dodge(width = 0.6),
+                  linewidth = 0.5, size = 0.3) +
+  facet_wrap(~paste("Lag", lag)) +
+  scale_colour_manual(values = colour_compound[levels(causes$category)]) +
+  scale_x_log10() +
+  labs(x = "Odds ratio (log scale)", y = NULL, colour = NULL)
+```
+
+```{r}
+#| label: fig-reoi-causes
+#| fig-cap: "Relative excess odds due to interaction (REOI) by cause of death and lag. Bars are 95% confidence intervals; zero means no additive interaction."
+#| fig-height: 5.4
+reoi <- main_int[subgroup == "all" & measure == "REOI"]
+reoi[, cause := factor(cause_labels[outcome], levels = rev(cause_labels))]
+ggplot(reoi, aes(estimate, cause)) +
+  geom_vline(xintercept = 0, colour = ink$axis) +
+  geom_pointrange(aes(xmin = low, xmax = high), colour = ramp_blue[6], linewidth = 0.5, size = 0.3) +
+  facet_wrap(~paste("Lag", lag), nrow = 1) +
+  labs(x = "REOI", y = NULL)
+```
+
+```{r}
+#| label: tbl-causes
+#| tbl-cap: "Compound model by cause of death: deaths, odds ratios and REOI with 95% confidence intervals."
+cause_table <- merge(
+  dcast(main_or[subgroup == "all" & model == "compound"], outcome + lag + deaths + deaths_e11 ~ term,
+        value.var = c("or", "or_low", "or_high")),
+  main_int[subgroup == "all" & measure == "REOI", .(outcome, lag, reoi = estimate, reoi_low = low, reoi_high = high)],
+  by = c("outcome", "lag")
+)
+cause_table <- cause_table[, .(
+  Cause = factor(cause_labels[outcome], levels = cause_labels), Lag = lag, Deaths = deaths,
+  `Deaths in E11` = deaths_e11,
+  `Heatwave only` = ci(or_e10, or_low_e10, or_high_e10),
+  `High ozone only` = ci(or_e01, or_low_e01, or_high_e01),
+  `Both` = ci(or_e11, or_low_e11, or_high_e11),
+  REOI = ci(reoi, reoi_low, reoi_high)
+)][order(Cause, Lag)]
+kableExtra::scroll_box(
+  kableExtra::kable_styling(kable(cause_table, format = "html", format.args = list(big.mark = ",")),
+                            bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "420px"
+)
+```
+
+## By age and sex
+
+```{r}
+#| label: fig-subgroups
+#| fig-cap: "Non-accidental mortality by age group and sex: odds ratio of days with both exposures (E11) and REOI, by lag. Bars are 95% confidence intervals."
+#| fig-height: 4.6
+sub_or <- main_or[outcome == "non_accidental" & subgroup != "all" & model == "compound" & term == "e11",
+                  .(subgroup, lag, measure = "Odds ratio, E11", estimate = or,
+                    low = or_low, high = or_high, null = 1)]
+sub_reoi <- main_int[outcome == "non_accidental" & subgroup != "all" & measure == "REOI",
+                     .(subgroup, lag, measure = "REOI", estimate, low, high, null = 0)]
+subgroups <- rbind(sub_or, sub_reoi)
+subgroups[, subgroup := factor(subgroup, levels = c("0-64", "65-84", "85+", "female", "male"),
+                               labels = c("0-64 years", "65-84 years", "85 years or more", "Women", "Men"))]
+ggplot(subgroups, aes(factor(lag), estimate)) +
+  geom_hline(aes(yintercept = null), colour = ink$axis) +
+  geom_pointrange(aes(ymin = low, ymax = high), colour = ramp_blue[6], linewidth = 0.5, size = 0.3) +
+  facet_grid(measure ~ subgroup, scales = "free_y") +
+  labs(x = "Lag (days)", y = NULL)
+```
+
+```{r}
+#| label: tbl-subgroup-tests
+#| tbl-cap: "Difference between subgroups in the log odds ratio of the compound exposure (E11): two-sample z-test against the first subgroup of each pair."
+e11 <- main_or[outcome == "non_accidental" & model == "compound" & term == "e11" & subgroup != "all",
+               .(subgroup, lag, log_or, se)]
+pairs <- list(c("0-64", "65-84"), c("0-64", "85+"), c("female", "male"))
+tests <- rbindlist(lapply(pairs, function(pair) {
+  d <- merge(e11[subgroup == pair[1]], e11[subgroup == pair[2]], by = "lag", suffixes = c("_a", "_b"))
+  d[, .(comparison = paste(pair[2], "against", pair[1]), lag,
+        ratio_of_odds_ratios = exp(log_or_b - log_or_a),
+        z = (log_or_b - log_or_a) / sqrt(se_a^2 + se_b^2))][
+    , p_value := 2 * pnorm(-abs(z))]
+}))
+kable(tests, digits = c(0, 0, 3, 2, 3),
+      col.names = c("Comparison", "Lag", "Ratio of odds ratios", "z", "p"))
+```
+
+## Across the grid of definitions
+
+The compound model was fitted for every combination of the 15 heatwave
+definitions, the three ozone series, the two interpolation methods and the
+three cut-offs, at each lag. The figure shows the REOI for non-accidental
+mortality with the IDW series; a dot marks the cells whose 95% interval
+excludes zero. The colour scale stops at ±0.15: the few cells beyond it, all
+in the rarest heatwave definitions, are drawn at the limit.
+
+```{r}
+#| label: fig-grid
+#| fig-cap: "REOI for non-accidental mortality across heatwave definitions (rows) and ozone definitions (columns), by lag, IDW series."
+#| fig-height: 13
+#| fig-width: 9
+g <- grid[outcome == "non_accidental" & grepl("_idw_", ozone) & estimable == TRUE]
+g[, series := factor(sub("_idw_gt_p[0-9]+$", "", ozone), levels = c("o3", "o3obs", "o3mda8"),
+                     labels = c("Delivered 24 h", "Rebuilt 24 h", "Rebuilt MDA8"))]
+g[, cutoff := paste0("> P", sub(".*_gt_p", "", ozone))]
+g[, heatwave := factor(heatwave, levels = rev(unique(grid$heatwave)))]
+g[, excludes_zero := low_reoi > 0 | high_reoi < 0]
+limit <- 0.15
+ggplot(g, aes(cutoff, heatwave, fill = estimate_reoi)) +
+  geom_tile(colour = ink$surface, linewidth = 0.8) +
+  geom_point(data = g[excludes_zero == TRUE], size = 1.2, colour = ink$primary) +
+  facet_grid(paste("Lag", lag) ~ series) +
+  scale_fill_gradient2(low = diverging[["low"]], mid = diverging[["mid"]], high = diverging[["high"]],
+                       midpoint = 0, limits = c(-limit, limit), oob = scales::squish, name = "REOI") +
+  labs(x = "Ozone cut-off (municipality percentile)", y = NULL) +
+  theme(panel.grid.major = element_blank(), legend.position = "right",
+        legend.justification = "center")
+```
+
+```{r}
+#| label: tbl-grid-summary
+#| tbl-cap: "Definition grid, summary by outcome and lag: number of fitted cells, range of the REOI and cells whose 95% interval excludes zero."
+grid_summary <- grid[estimable == TRUE, .(
+  cells = .N, median_reoi = median(estimate_reoi), min_reoi = min(estimate_reoi),
+  max_reoi = max(estimate_reoi), above_zero = sum(low_reoi > 0), below_zero = sum(high_reoi < 0)
+), keyby = .(outcome, lag)]
+grid_summary[, outcome := cause_labels[outcome]]
+kable(grid_summary, digits = 3,
+      col.names = c("Outcome", "Lag", "Cells", "Median REOI", "Lowest REOI", "Highest REOI",
+                    "Interval above zero", "Interval below zero"))
+```
+
+With `r grid[estimable == TRUE, .N]` cells and no correction for multiple
+comparisons, about `r round(0.05 * grid[estimable == TRUE, .N])` intervals would
+exclude zero by chance alone. The full grid is in `Output/Tables/models_grid.csv`.
+
+### Where the positive cells are
+
+```{r}
+#| label: tbl-grid-threshold
+#| tbl-cap: "Non-accidental mortality: share of grid cells (%) whose REOI interval lies above zero, by heatwave threshold and lag, with the median REOI."
+by_threshold <- grid[estimable == TRUE & outcome == "non_accidental", .(
+  cells = .N, above_zero_pct = 100 * mean(low_reoi > 0), median_reoi = median(estimate_reoi)
+), by = .(threshold = sub("^hw_(.*)_[0-9]d$", "\\1", heatwave), lag)]
+by_threshold[, threshold := factor(threshold, levels = c("p90", "p95", "p99", "30c", "ehf"),
+                                   labels = c("> P90", "> P95", "> P99", "> 30 °C", "EHF > 0"))]
+kable(dcast(by_threshold, threshold ~ lag, value.var = c("above_zero_pct", "median_reoi")),
+      digits = c(0, 0, 0, 0, 0, 3, 3, 3, 3),
+      col.names = c("Heatwave threshold", paste("% above zero, lag", 0:3), paste("Median REOI, lag", 0:3)))
+```
+
+At lags 0 and 1 the grid shows no additive interaction under any definition.
+At lags 2 and 3 many intervals lie above zero, and they are concentrated in
+the definitions with the fixed 30 °C threshold and the excess heat factor,
+while the 95th and 99th percentile definitions show almost none. This is not
+yet evidence of synergy. Each model looks at one lag at a time, so the
+exposure of two or three days earlier is not separated from the heat of the
+days that followed, and days with both exposures belong to longer and hotter
+spells than heatwave-only days. Models with the lags fitted together
+(distributed lag models) and with temperature intensity in the model are
+needed before this pattern is interpreted.
+
+## Ozone as a continuous exposure
+
+```{r}
+#| label: fig-continuous
+#| fig-cap: "Odds ratio of non-accidental death per 10 ppb of ozone, by ozone series and lag, IDW, adjusted for the working heatwave indicator. Bars are 95% confidence intervals."
+#| fig-height: 3.6
+cont <- continuous[outcome == "non_accidental" & adjustment != "none" & grepl("_idw$", series)]
+cont[, series := factor(sub("_idw$", "", series), levels = c("o3", "o3obs", "o3mda8"),
+                        labels = names(colour_series))]
+ggplot(cont, aes(factor(lag), or, colour = series)) +
+  geom_hline(yintercept = 1, colour = ink$axis) +
+  geom_pointrange(aes(ymin = or_low, ymax = or_high), position = position_dodge(width = 0.5),
+                  linewidth = 0.6, size = 0.35) +
+  scale_colour_manual(values = colour_series) +
+  labs(x = "Lag (days)", y = "Odds ratio per 10 ppb", colour = NULL)
+```
+
+```{r}
+#| label: tbl-continuous
+#| tbl-cap: "Odds ratio per 10 ppb of ozone (95% confidence interval), by outcome, series, adjustment and lag."
+cont_table <- copy(continuous)[, value := ci(or, or_low, or_high, 3)]
+cont_table[, outcome := cause_labels[outcome]]
+kableExtra::scroll_box(
+  kableExtra::kable_styling(
+    kable(dcast(cont_table, outcome + series + adjustment ~ lag, value.var = "value"), format = "html",
+          col.names = c("Outcome", "Ozone series", "Adjusted for", "Lag 0", "Lag 1", "Lag 2", "Lag 3")),
+    bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "380px"
+)
+```
+
+A 10 ppb step is not the same contrast in the three series: the MDA8 is about
+twice the 24-hour mean and varies about twice as much from day to day.
+
+## Not done yet
+
+- Attributable mortality burden by municipality and year (needs population by
+  age and baseline rates).
+- Adjustment for PM2.5, nitrogen dioxide and humidity, and distributed lag
+  non-linear models (deliverable 4).
+- Mediation of the heatwave effect by ozone (secondary aim of the plan).
+- Choice of the primary lag and of the headline definitions, which belong to
+  the principal investigator.
+
+```{r}
+#| label: session
+#| code-summary: "Session information"
+sessionInfo()
+```

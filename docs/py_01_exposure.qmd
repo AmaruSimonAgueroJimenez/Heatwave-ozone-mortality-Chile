@@ -1,0 +1,440 @@
+---
+title: "Exposure dataset in Python"
+subtitle: "Independent replication of the R pipeline · Heatwaves, ozone and mortality in Santiago, 2009-2020"
+author: "Amaru Agüero Jiménez"
+date: today
+jupyter: python3
+---
+
+## Purpose
+
+This page rebuilds the exposure dataset in Python, from the same raw inputs and
+the same `config/config.yml`, and then compares the result with the R dataset
+column by column. Two implementations that agree are the strongest check
+available that the indicators are what the analysis plan describes. Nothing
+computed by the R pipeline is reused; the only files taken from it are the
+station and target coordinates, which exist only inside R data files and are
+exported as they are by `Code/15_export_geodata.R`.
+
+Replicated here: the 15 heatwave indicators, the delivered air pollution series
+with their quality rules, the ozone station series from the hourly SINCA
+records (24-hour mean and MDA8), their interpolation to the municipalities by
+inverse distance weighting, and the high-ozone flags. Ordinary kriging is not
+replicated: its variogram is fitted by the R package `automap`, which has no
+Python counterpart, so the kriging columns exist only in the R dataset.
+
+```{python}
+#| label: setup
+from pathlib import Path
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import yaml
+
+ROOT = next(p for p in [Path.cwd(), *Path.cwd().parents] if (p / "_quarto.yml").exists())
+DERIVED = ROOT / "Data" / "Derived"
+
+
+def merge_config(base, override):
+    """Entries of `override` replace those of `base`, level by level."""
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge_config(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+CFG = yaml.safe_load((ROOT / "config" / "config.yml").read_text(encoding="utf-8"))
+LOCAL = ROOT / "config" / "local.yml"
+if LOCAL.exists():
+    CFG = merge_config(CFG, yaml.safe_load(LOCAL.read_text(encoding="utf-8")))
+
+
+def get_param(*keys):
+    """Read one parameter; stop when it is missing or still null."""
+    value = CFG
+    for key in keys:
+        if not isinstance(value, dict) or value.get(key) is None:
+            raise KeyError(f"Parameter {'$'.join(keys)} is not set in config/config.yml")
+        value = value[key]
+    return value
+
+
+def input_path(name):
+    root = Path(get_param("paths", "input_root")).expanduser()
+    if not root.is_absolute():
+        root = ROOT / root
+    path = Path(get_param("inputs", name)).expanduser()
+    if not path.is_absolute():
+        path = root / path
+    if not path.exists():
+        raise FileNotFoundError(f"Input '{name}' not found: {path}")
+    return path
+
+
+municipalities = pd.read_csv(ROOT / get_param("study", "municipalities_file"))
+assert len(municipalities) == get_param("study", "n_municipalities")
+CODES = municipalities["code"].tolist()
+STUDY_YEARS = get_param("study", "years")
+WARM_MONTHS = get_param("study", "warm_season_months")
+LAG_BUFFER = max(get_param("design", "lags_days"))
+KEEP_DATES = pd.date_range(
+    pd.Timestamp(f"{STUDY_YEARS[0]}-01-01") - pd.Timedelta(days=LAG_BUFFER),
+    f"{STUDY_YEARS[1]}-12-31", freq="D", name="date",
+)
+
+# Figure style shared with the R reports
+INK = {"primary": "#0b0b0b", "secondary": "#52514e", "grid": "#e1e0d9", "surface": "#fcfcfb"}
+BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
+plt.rcParams.update({
+    "figure.facecolor": INK["surface"], "axes.facecolor": INK["surface"],
+    "axes.edgecolor": INK["grid"], "axes.grid": True, "grid.color": INK["grid"],
+    "grid.linewidth": 0.5, "axes.spines.top": False, "axes.spines.right": False,
+    "axes.labelcolor": INK["secondary"], "xtick.color": INK["secondary"],
+    "ytick.color": INK["secondary"], "text.color": INK["primary"],
+    "axes.titleweight": "bold", "axes.titlesize": 10, "axes.titlelocation": "left",
+    "font.size": 9, "figure.dpi": 150,
+})
+```
+
+## Temperature and heatwave indicators
+
+```{python}
+#| label: temperature
+def read_cr2met(path, codes):
+    """Wide CR2MET file -> table of days (rows) by municipality (columns)."""
+    raw = pd.read_csv(path, header=None)
+    header, body = raw.iloc[:4], raw.iloc[4:]
+    assert (header.iloc[:, :3] == -9999).all().all()
+    file_codes = header.iloc[0, 3:].astype(int).tolist()
+    missing = set(codes) - set(file_codes)
+    if missing:
+        raise ValueError(f"Municipalities missing from {path.name}: {sorted(missing)}")
+    dates = pd.to_datetime(dict(year=body[0].astype(int), month=body[1].astype(int),
+                                day=body[2].astype(int)))
+    assert dates.is_monotonic_increasing and dates.is_unique
+    columns = [3 + file_codes.index(code) for code in codes]
+    wide = body.iloc[:, columns].astype(float)
+    wide.index, wide.columns = pd.DatetimeIndex(dates, name="date"), codes
+    assert not wide.isna().any().any() and (wide > -90).all().all()
+    return wide
+
+
+def fill_calendar(wide, handling):
+    """Complete calendar; only isolated 29 February gaps are accepted."""
+    full = pd.date_range(wide.index.min(), wide.index.max(), freq="D", name="date")
+    out = wide.reindex(full)
+    filled = out.iloc[:, 0].isna()
+    gaps = full[filled]
+    assert ((gaps.month == 2) & (gaps.day == 29)).all(), "gaps other than 29 February"
+    if handling == "interpolate":
+        neighbours = (out.shift(1) + out.shift(-1)) / 2
+        out.loc[filled.to_numpy()] = neighbours.loc[filled.to_numpy()]
+    elif handling != "missing":
+        raise ValueError(handling)
+    return out, filled
+
+
+handling = get_param("temperature", "leap_day_handling")
+tmax, filled = fill_calendar(read_cr2met(input_path("cr2met_tmax"), CODES), handling)
+tmin, _ = fill_calendar(read_cr2met(input_path("cr2met_tmin"), CODES), handling)
+
+ref_years = get_param("temperature", "percentile_reference_years")
+percentiles = get_param("temperature", "percentile_thresholds")
+durations = get_param("temperature", "min_consecutive_days")
+absolute_c = get_param("temperature", "absolute_threshold_celsius")
+season_rule = get_param("temperature", "percentile_season")
+assert season_rule in ("all_year", "warm_season")
+
+in_reference = (tmax.index.year >= ref_years[0]) & (tmax.index.year <= ref_years[1]) & ~filled.to_numpy()
+threshold_days = in_reference & (tmax.index.month.isin(WARM_MONTHS) if season_rule == "warm_season" else True)
+# numpy's default (linear) quantile is R's type 7
+thresholds = {p: np.quantile(tmax[threshold_days].to_numpy(), p / 100, axis=0) for p in percentiles}
+
+
+def flag(condition, source):
+    """0/1 table that keeps missing values missing."""
+    return condition.astype(float).where(source.notna())
+
+
+def consecutive_flag(hot, n):
+    """1 when the day is at least the n-th consecutive hot day, by municipality."""
+    run = hot.rolling(n).sum()          # each column is one municipality
+    return flag(run == n, run)
+
+
+temperature_columns = {"tmax": tmax, "tmin": tmin}
+hot = {f"p{p}": flag(tmax > thresholds[p], tmax) for p in percentiles}
+hot[f"{absolute_c}c"] = flag(tmax > absolute_c, tmax)
+for name, table in hot.items():
+    temperature_columns[f"hot_{name}"] = table
+    for n in durations:
+        temperature_columns[f"hw_{name}_{n}d"] = consecutive_flag(table, n)
+
+if get_param("temperature", "include_ehf"):
+    tad = (tmax + tmin.shift(-1)) / 2
+    tad_reference = np.nanquantile(tad[in_reference].to_numpy(),
+                                   get_param("temperature", "ehf_reference_percentile") / 100, axis=0)
+    accl = tad.rolling(get_param("temperature", "ehf_acclimatisation_days")).mean()
+    temperature_columns["tad"] = tad
+    for n in durations:
+        mean_n = tad.rolling(n).mean()
+        ehf = (mean_n - tad_reference) * np.maximum(1, mean_n - accl)
+        temperature_columns[f"ehf_{n}d"] = ehf
+        temperature_columns[f"hw_ehf_{n}d"] = flag(ehf > 0, ehf)
+
+
+def to_long(tables):
+    """Dictionary of day-by-municipality tables -> one row per municipality-day."""
+    parts = [t.loc[KEEP_DATES].rename_axis(index="date", columns="com").stack(future_stack=True).rename(name)
+             for name, t in tables.items()]
+    return pd.concat(parts, axis=1).reset_index()
+
+
+exposure = to_long(temperature_columns)
+exposure["temp_filled"] = exposure["date"].isin(filled.index[filled])
+print(f"{len(exposure):,} municipality-days, "
+      f"{sum(c.startswith('hw_') for c in exposure.columns)} heatwave indicators")
+```
+
+## Delivered air pollution series
+
+```{python}
+#| label: pollution
+variables = ([get_param("air_pollution", "primary_pollutant")]
+             + get_param("air_pollution", "adjustment_pollutants")
+             + get_param("air_pollution", "other_variables"))
+assert get_param("air_pollution", "negative_values") == "set_missing"
+min_stations = get_param("air_pollution", "min_stations")
+
+suffixes = ["_idw", "_ok", "_ok_var", "_n_estaciones"]
+columns = ["comuna", "date"] + [v + s for v in variables for s in suffixes]
+version = get_param("air_pollution", "series_version_main")
+delivered = pd.read_csv(input_path(f"sinca_{version}"), usecols=columns, parse_dates=["date"])
+delivered = delivered[delivered["date"].isin(KEEP_DATES)]
+delivered = delivered.merge(municipalities, left_on="comuna", right_on="name", validate="m:1")
+assert len(delivered) == len(CODES) * len(KEEP_DATES)
+delivered = delivered.rename(columns={"code": "com"}).drop(columns=["comuna", "name"])
+delivered.columns = [c.replace("_n_estaciones", "_n_stations") for c in delivered.columns]
+
+for v in variables:
+    for method in ("idw", "ok"):
+        column = f"{v}_{method}"
+        drop = (delivered[column] < 0) | (delivered[column].notna() & (delivered[f"{v}_n_stations"] < min_stations))
+        delivered.loc[drop, column] = np.nan
+        if method == "ok":
+            delivered.loc[drop, f"{v}_ok_var"] = np.nan
+
+exposure = exposure.merge(delivered, on=["com", "date"], validate="1:1")
+```
+
+## Ozone rebuilt from the hourly records
+
+```{python}
+#| label: stations
+rules = get_param("station_series")
+station_codes = pd.read_csv(ROOT / rules["stations_file"])
+accepted = rules["accepted_status"]
+status_column = {"validated": 2, "preliminary": 3, "not_validated": 4}
+assert set(accepted) <= set(status_column)
+
+
+def station_daily(sinca_id):
+    """24-hour mean and MDA8 of one station from its hourly records."""
+    file = input_path("sinca_hourly_dir") / (rules["hourly_file_pattern"] % sinca_id)
+    raw = pd.read_csv(file, sep=";", header=None, skiprows=1, dtype=str, usecols=range(5))
+    value = pd.Series(np.nan, index=raw.index)
+    for status in ("validated", "preliminary", "not_validated"):     # validated first
+        if status in accepted:
+            number = pd.to_numeric(raw[status_column[status]].str.replace(",", ".", regex=False))
+            value = value.fillna(number)
+    stamp = pd.to_datetime(raw[0], format="%y%m%d") + pd.to_timedelta(raw[1].str[:2].astype(int), unit="h")
+    assert stamp.is_unique
+    hourly = pd.Series(value.to_numpy(), index=stamp)
+    full = pd.date_range(stamp.min().normalize(), stamp.max().normalize() + pd.Timedelta(hours=23), freq="h")
+    hourly = hourly.reindex(full)
+    valid = hourly.notna()
+    n8 = valid.astype(float).rolling(8).sum()
+    mean8 = (hourly.fillna(0).rolling(8).sum() / n8).where(n8 >= rules["mda8_min_hours_window"])
+    day = hourly.index.normalize()
+    n_hours = valid.groupby(day).sum()
+    mean24 = hourly.groupby(day).mean().where(n_hours >= rules["min_valid_hours_day"])
+    mda8 = mean8.groupby(day).max().where(mean8.notna().groupby(day).sum() >= rules["mda8_min_windows_day"])
+    return pd.DataFrame({"mean24": mean24, "mda8": mda8}).reindex(KEEP_DATES)
+
+
+daily = {row.station: station_daily(row.sinca_id) for row in station_codes.itertuples()}
+print({name: int(table["mean24"].notna().sum()) for name, table in daily.items()})
+```
+
+```{python}
+#| label: idw
+params = get_param("interpolation")
+points = pd.read_csv(DERIVED / "ozone_station_points.csv").set_index("station").loc[list(daily)]
+targets = pd.read_csv(DERIVED / "interpolation_points.csv").set_index("com").loc[CODES]
+distance = np.hypot(targets["x"].to_numpy()[:, None] - points["x"].to_numpy()[None, :],
+                    targets["y"].to_numpy()[:, None] - points["y"].to_numpy()[None, :])
+
+
+def idw_day(values):
+    """Inverse distance weighting of one day of station values to the targets:
+    the nearest `idw_nmax` stations within `idw_maxdist_m`, power `idw_power`."""
+    available = ~np.isnan(values)
+    if available.sum() < params["ok_min_stations"]:
+        return np.full(len(targets), np.nan), int(available.sum())
+    d = distance[:, available]
+    d = np.where(d <= params["idw_maxdist_m"], d, np.inf)
+    nearest = np.argsort(d, axis=1)[:, :params["idw_nmax"]]
+    d_near = np.take_along_axis(d, nearest, axis=1)
+    weights = 1 / d_near ** params["idw_power"]            # zero beyond the search radius
+    total = weights.sum(axis=1)
+    estimate = (weights * values[available][nearest]).sum(axis=1)
+    return np.where(total > 0, estimate / np.where(total > 0, total, 1), np.nan), int(available.sum())
+
+
+rebuilt = {}
+for metric, prefix in {"mean24": "o3obs", "mda8": "o3mda8"}.items():
+    station_values = np.column_stack([daily[name][metric].to_numpy() for name in daily])
+    results = [idw_day(row) for row in station_values]
+    rebuilt[f"{prefix}_idw"] = pd.DataFrame([r[0] for r in results], index=KEEP_DATES, columns=CODES)
+    n_stations = pd.DataFrame(np.repeat([[r[1]] for r in results], len(CODES), axis=1),
+                              index=KEEP_DATES, columns=CODES)
+    rebuilt[f"{prefix}_n_stations"] = n_stations
+
+rebuilt_long = pd.concat(
+    [t.rename_axis(index="date", columns="com").stack(future_stack=True).rename(name)
+     for name, t in rebuilt.items()], axis=1).reset_index()
+exposure = exposure.merge(rebuilt_long, on=["com", "date"], validate="1:1")
+```
+
+## High-ozone flags and compound exposure
+
+```{python}
+#| label: flags
+exposure = exposure.sort_values(["com", "date"]).reset_index(drop=True)
+exposure["year"] = exposure["date"].dt.year
+exposure["in_study_period"] = exposure["year"].between(*STUDY_YEARS)
+exposure["warm_season"] = exposure["date"].dt.month.isin(WARM_MONTHS)
+analysis_day = exposure["in_study_period"] & exposure["warm_season"]
+cutoffs = get_param("air_pollution", "ozone_percentile_cutoffs")
+assert get_param("air_pollution", "ozone_percentile_scope") == "municipality"
+
+for series in ["o3_idw", "o3_ok", "o3obs_idw", "o3mda8_idw"]:
+    reference = exposure.loc[analysis_day & exposure[series].notna()]
+    for p in cutoffs:
+        cut = reference.groupby("com")[series].quantile(p / 100)       # linear, as R type 7
+        exposure[f"{series}_gt_p{p}"] = flag(exposure[series] > exposure["com"].map(cut), exposure[series])
+
+exposure.to_csv(DERIVED / "py_exposure_2009_2020.csv", index=False)
+print(f"{exposure.shape[0]:,} rows, {exposure.shape[1]} columns written to Data/Derived/py_exposure_2009_2020.csv")
+```
+
+## Comparison with the R dataset
+
+Every column built here is compared with the column of the same name in
+`Data/Derived/exposure_2009_2020.csv`, over all `{python} f"{len(exposure):,}"`
+municipality-days.
+
+```{python}
+#| label: tbl-compare
+#| tbl-cap: "Python against R, column by column. Flags and counts are compared exactly; continuous variables by their largest absolute difference."
+r_data = pd.read_csv(DERIVED / "exposure_2009_2020.csv", parse_dates=["date"])
+r_data = r_data.sort_values(["com", "date"]).reset_index(drop=True)
+assert (r_data[["com", "date"]].to_numpy() == exposure[["com", "date"]].to_numpy()).all()
+
+groups = {
+    "Temperature (tmax, tmin, tad)": ["tmax", "tmin", "tad"],
+    "Hot-day flags": [c for c in exposure if c.startswith("hot_")],
+    "Heatwave indicators, percentile and 30 °C": [c for c in exposure if c.startswith("hw_") and "ehf" not in c],
+    "Excess heat factor": [c for c in exposure if c.startswith("ehf_")],
+    "Heatwave indicators, EHF": [c for c in exposure if c.startswith("hw_ehf_")],
+    "Delivered series, IDW and kriging": [f"{v}_{m}" for v in variables for m in ("idw", "ok", "ok_var")],
+    "Rebuilt ozone, 24-hour mean, IDW": ["o3obs_idw"],
+    "Rebuilt ozone, MDA8, IDW": ["o3mda8_idw"],
+    "Stations per day": [c for c in exposure if c.endswith("_n_stations")],
+    "High-ozone flags, delivered series": [c for c in exposure if "_gt_p" in c and c.startswith("o3_")],
+    "High-ozone flags, rebuilt series": [c for c in exposure if "_gt_p" in c and not c.startswith("o3_")],
+}
+rows = []
+for label, columns in groups.items():
+    py = exposure[columns].astype(float).to_numpy()
+    r = r_data[columns].astype(float).to_numpy()
+    both = ~np.isnan(py) & ~np.isnan(r)
+    difference = np.abs(py - r)[both]
+    rows.append({
+        "Columns": label, "Number of columns": len(columns), "Values compared": int(both.sum()),
+        "Missing in one only": int((np.isnan(py) != np.isnan(r)).sum()),
+        "Largest absolute difference": float(difference.max()),
+        "Values differing by more than 1e-6": int((difference > 1e-6).sum()),
+    })
+comparison = pd.DataFrame(rows)
+comparison.style.format({"Values compared": "{:,}", "Largest absolute difference": "{:.2e}"}).hide(axis="index")
+```
+
+```{python}
+#| label: verdict
+identical = (comparison["Missing in one only"].sum() == 0
+             and comparison["Values differing by more than 1e-6"].sum() == 0)
+print("Python and R agree on every compared value." if identical
+      else "Python and R differ: see the table above.")
+```
+
+## Two figures from the Python dataset
+
+```{python}
+#| label: fig-annual
+#| fig-cap: "Heatwave days per municipality and high-ozone share of heatwave days, by calendar year, working definitions."
+heatwave_main = get_param("models", "heatwave_main")
+ozone_flag_main = (f"{get_param('air_pollution', 'ozone_series_main')}_"
+                   f"{get_param('air_pollution', 'interpolation_method_main')}_gt_p"
+                   f"{get_param('models', 'ozone_cutoff_main')}")
+days = exposure[exposure["in_study_period"] & exposure["warm_season"]]
+assert len(days) == len(CODES) * days["date"].nunique()
+by_year = days.groupby("year").apply(lambda d: pd.Series({
+    "heatwave": d[heatwave_main].sum() / d["com"].nunique(),
+    "share": 100 * (d[heatwave_main] * d[ozone_flag_main]).sum() / d[heatwave_main].sum(),
+}), include_groups=False)
+
+fig, axes = plt.subplots(1, 2, figsize=(8, 3))
+axes[0].bar(by_year.index, by_year["heatwave"], width=0.6, color=ORANGE)
+axes[0].set_title(f"Heatwave days per municipality ({heatwave_main})")
+axes[1].plot(by_year.index, by_year["share"], color=BLUE, linewidth=2, marker="o", markersize=4)
+axes[1].set_title("Heatwave days that are also high-ozone days (%)")
+axes[1].set_ylim(0, 100)
+for ax in axes:
+    ax.set_xticks(range(STUDY_YEARS[0], STUDY_YEARS[1] + 1, 2))
+    ax.grid(axis="x", visible=False)
+fig.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: fig-map
+#| fig-cap: "Compound days per year by municipality (heatwave and high ozone), warm seasons 2009-2020, working definitions."
+polygons = gpd.read_file(DERIVED / "municipality_polygons.geojson")
+compound = (days.assign(both=days[heatwave_main] * days[ozone_flag_main])
+            .groupby("com")["both"].sum() / (STUDY_YEARS[1] - STUDY_YEARS[0] + 1))
+polygons["compound"] = polygons["com"].map(compound)
+from matplotlib.colors import LinearSegmentedColormap
+orange_ramp = LinearSegmentedColormap.from_list(
+    "orange", ["#fbe3d6", "#f7c4aa", "#f2a17b", "#eb6834", "#c4501f", "#983b13", "#6c2a0d"])
+fig, ax = plt.subplots(figsize=(5.5, 4.6))
+polygons.plot(column="compound", cmap=orange_ramp, edgecolor="white", linewidth=0.4, ax=ax,
+              legend=True, legend_kwds={"label": "Days per year", "shrink": 0.6})
+ax.set_axis_off()
+plt.show()
+```
+
+## Software
+
+```{python}
+#| label: versions
+import platform
+print("Python", platform.python_version())
+for module in (np, pd, gpd, yaml):
+    print(module.__name__, module.__version__)
+```

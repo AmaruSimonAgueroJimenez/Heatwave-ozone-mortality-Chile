@@ -1,0 +1,7 @@
+item,value
+Deaths (strata),135359
+Rows (deaths and referent days),591719
+Deaths with 3 control days,85076
+Deaths with 4 control days,50283
+Municipality-days used as referent,59754
+Lagged exposure columns,188

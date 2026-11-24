@@ -1,0 +1,5 @@
+series,method,rows,missing,negative_set_missing,days_below_min_stations,days_with_kriging_warning,days_variogram_not_fitted
+o3obs,idw,144738,80,0,2,0,0
+o3obs,ok,144738,66,18,2,0,0
+o3mda8,idw,144738,98,0,2,1,1
+o3mda8,ok,144738,99,12,2,1,1

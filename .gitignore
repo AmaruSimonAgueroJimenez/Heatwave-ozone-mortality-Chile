@@ -15,10 +15,16 @@ Data/Derived/*
 Output/Models/*
 !Output/Models/.gitkeep
 
+# Machine-specific paths
+config/local.yml
+
 # Quarto working files
 /.quarto/
 docs/.quarto/
 *_cache/
+*_files/
+.ipynb_checkpoints/
+__pycache__/
 
 # Operating system and cloud-sync files
 .DS_Store

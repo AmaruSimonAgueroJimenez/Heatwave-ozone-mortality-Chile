@@ -9,10 +9,17 @@ format:
   html:
     toc: true
     toc-depth: 3
+    toc-location: left
     number-sections: true
     code-fold: true
+    code-summary: "Show the code"
+    code-tools: true
     embed-resources: true
     theme: cosmo
+    fig-dpi: 150
+    fig-width: 8
+    fig-height: 4.6
+    include-before-body: docs/_nav.html
 
 execute:
   echo: true

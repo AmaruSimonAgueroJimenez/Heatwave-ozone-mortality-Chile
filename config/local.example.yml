@@ -1,0 +1,19 @@
+# Machine-specific overrides. Copy this file to config/local.yml (not tracked
+# by git) and edit the paths. Entries here replace those of config.yml.
+#
+# input_root may be absolute or relative to the project root; each input may
+# be relative to input_root or absolute.
+
+paths:
+  input_root: /path/to/project/inputs
+
+inputs:
+  cr2met_tmax: CR2-Met/Input/CR2MET_tmax_v2.5_day_COM_TS_1980_2021.csv
+  cr2met_tmin: CR2-Met/Input/CR2MET_tmin_v2.5_day_COM_TS_1980_2021.csv
+  sinca_opr: Contaminantes-SINCA/1_04_daily_interpolated_opr.csv
+  sinca_all: Contaminantes-SINCA/1_04_daily_interpolated_all.csv
+  municipality_shapes: pollution-interpolation-kriging-idw/Data/municipalities_shape.RData
+  interpolation_locations: pollution-interpolation-kriging-idw/Data/interpolation_locations.RData
+  station_series: pollution-interpolation-kriging-idw/Data/imputed_series.RData
+  sinca_hourly_dir: /path/to/sinca
+  deis_deaths: DEIS/defunciones_RM_2009_2020_extracto.csv

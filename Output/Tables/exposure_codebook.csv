@@ -1,0 +1,79 @@
+variable,description,missing
+com,Municipality code (INE),0
+municipality,Municipality name,0
+date,Calendar day,0
+year,Calendar year,0
+in_study_period,Day inside the study years (FALSE for the lag buffer days),0
+warm_season,Day between 1 November and 31 March,0
+tmax,"Daily maximum temperature, CR2MET v2.5 (degrees C)",0
+tmin,"Daily minimum temperature, CR2MET v2.5 (degrees C)",0
+temp_filled,"Temperature absent from CR2MET (29 February), filled as configured",0
+hot_p90,Maximum temperature above the threshold in the name (1/0),0
+hot_p95,Maximum temperature above the threshold in the name (1/0),0
+hot_p99,Maximum temperature above the threshold in the name (1/0),0
+hot_30c,Maximum temperature above the threshold in the name (1/0),0
+hw_p90_2d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p90_3d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p90_4d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p95_2d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p95_3d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p95_4d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p99_2d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p99_3d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_p99_4d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_30c_2d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_30c_3d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+hw_30c_4d,Heatwave day: at least the n-th consecutive day above the threshold (1/0),0
+tad,Daily mean temperature: (tmax + next-day tmin) / 2 (degrees C),0
+ehf_2d,"Excess heat factor, window in the name (degrees C squared)",0
+hw_ehf_2d,"Heatwave day: excess heat factor above zero, window in the name (1/0)",0
+ehf_3d,"Excess heat factor, window in the name (degrees C squared)",0
+hw_ehf_3d,"Heatwave day: excess heat factor above zero, window in the name (1/0)",0
+ehf_4d,"Excess heat factor, window in the name (degrees C squared)",0
+hw_ehf_4d,"Heatwave day: excess heat factor above zero, window in the name (1/0)",0
+o3_idw,"Ozone, 24-hour mean, delivered interpolated series (ppb)",0
+o3_ok,"Ozone, 24-hour mean, delivered interpolated series (ppb)",40
+o3_ok_var,Ordinary kriging variance,40
+o3_n_stations,Stations with a value that day,0
+pm25_idw,"PM2.5, delivered interpolated series (ug/m3)",0
+pm25_ok,"PM2.5, delivered interpolated series (ug/m3)",5
+pm25_ok_var,Ordinary kriging variance,5
+pm25_n_stations,Stations with a value that day,0
+no2_idw,"Nitrogen dioxide, delivered interpolated series (ppb)",26
+no2_ok,"Nitrogen dioxide, delivered interpolated series (ppb)",3
+no2_ok_var,Ordinary kriging variance,3
+no2_n_stations,Stations with a value that day,0
+hum_idw,"Relative humidity, delivered interpolated series (percent)",0
+hum_ok,"Relative humidity, delivered interpolated series (percent)",0
+hum_ok_var,Ordinary kriging variance,0
+hum_n_stations,Stations with a value that day,0
+o3obs_n_stations,Stations with a value that day,0
+o3obs_idw,"Ozone, 24-hour mean rebuilt from hourly records without trimming or imputation (ppb)",80
+o3obs_ok,"Ozone, 24-hour mean rebuilt from hourly records without trimming or imputation (ppb)",84
+o3obs_ok_var,Ordinary kriging variance,84
+o3obs_ok_warning,Variogram fit raised a warning that day,66
+o3obs_ok_failed,Variogram could not be fitted that day (too few stations); kriging value missing,66
+o3mda8_n_stations,Stations with a value that day,0
+o3mda8_idw,"Ozone, daily maximum 8-hour mean rebuilt from hourly records (ppb)",98
+o3mda8_ok,"Ozone, daily maximum 8-hour mean rebuilt from hourly records (ppb)",111
+o3mda8_ok_var,Ordinary kriging variance,111
+o3mda8_ok_warning,Variogram fit raised a warning that day,66
+o3mda8_ok_failed,Variogram could not be fitted that day (too few stations); kriging value missing,66
+o3_idw_gt_p50,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",0
+o3_idw_gt_p75,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",0
+o3_idw_gt_p90,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",0
+o3obs_idw_gt_p50,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",80
+o3obs_idw_gt_p75,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",80
+o3obs_idw_gt_p90,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",80
+o3mda8_idw_gt_p50,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",98
+o3mda8_idw_gt_p75,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",98
+o3mda8_idw_gt_p90,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",98
+o3_ok_gt_p50,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",40
+o3_ok_gt_p75,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",40
+o3_ok_gt_p90,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",40
+o3obs_ok_gt_p50,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",84
+o3obs_ok_gt_p75,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",84
+o3obs_ok_gt_p90,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",84
+o3mda8_ok_gt_p50,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",111
+o3mda8_ok_gt_p75,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",111
+o3mda8_ok_gt_p90,"Ozone above the municipality percentile in the name, warm-season days of the study years (1/0)",111
