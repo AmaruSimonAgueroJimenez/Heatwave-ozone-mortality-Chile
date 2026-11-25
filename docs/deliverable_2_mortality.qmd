@@ -51,7 +51,267 @@ dataset of the space-time-stratified case-crossover design.
 
 The tables and the figures of this page can be downloaded: each table has an
 **Excel** button above it, and each figure a **PNG, 600 dpi** button below it.
-Each part names the scripts and the files behind its tables and figures.
+Each part names the scripts and the files behind its tables and figures. The
+[Methodology](#sec-methodology), which opens the page, describes the data, the
+definitions and the methods.
+
+# Methodology {#sec-methodology}
+
+```{r}
+#| label: setup-methodology
+#| include: false
+# Every number quoted in the methodology is computed here, from the
+# configuration and the outputs of the scripts
+method <- list()
+method$municipalities <- study_municipalities()
+method$years <- get_param("study", "years")
+method$extract_years <- unlist(get_param("deis_extract", "years"))
+method$lags <- unlist(get_param("design", "lags_days"))
+method$strata <- unlist(get_param("design", "control_strata"))
+method$age_labels <- unlist(get_param("mortality", "age_labels"))
+method$cause_groups <- get_param("mortality", "cause_groups")
+method$flow <- read_table("mortality_flow.csv")
+method$dataset <- read_table("case_crossover_summary.csv")
+# One number of a table of steps or items, found by the start of its label
+pick_value <- function(table, label_column, value_column, pattern) {
+  value <- table[grepl(pattern, get(label_column)), get(value_column)]
+  stopifnot(length(value) == 1)
+  value
+}
+flow_step <- function(pattern) pick_value(method$flow, "step", "deaths", pattern)
+dataset_item <- function(pattern) pick_value(method$dataset, "item", "value", pattern)
+stopifnot(identical(method$strata, c("municipality", "year", "month", "day_of_week")))
+method$no_age_or_sex <- flow_step("^Non-accidental cause") - flow_step("with age and sex recorded")
+```
+
+*Scripts of this deliverable: `Code/20_mortality_deis.R` and
+`Code/21_case_crossover_dataset.R`.
+[Workflow and scripts](#sec-methods-workflow) lists what each one reads and
+writes, and every part of the page names the scripts and the files behind its
+tables and figures.*
+
+## Aim and design {#sec-methods-aim}
+
+This deliverable builds the outcome side of the study and joins it with the
+exposure of [deliverable 1](deliverable_1_exposure.html): the deaths of the
+residents of the study area, with their cause, age and sex, and the analytic
+dataset on which the models of [deliverable 3](deliverable_3_models.html) are
+fitted.
+
+The design is a case-crossover study (Maclure, 1991) with referent days
+stratified in time and space. Each death is compared with itself: the
+exposure of the day of death against the exposure of other days of the same
+person. What does not change within a few weeks (age, sex, chronic disease,
+socioeconomic position, place of residence) is the same on the day of death
+and on the control days, so it cannot confound the comparison. The control
+days are all the days of the same municipality, calendar year, month and day
+of the week as the day of death. Trend, season and the weekly cycle are
+controlled by that choice, and the time-stratified scheme avoids the bias of
+the schemes that choose control days around the day of death (Levy and
+others, 2001; Janes and others, 2005).
+
+## Population, period and unit {#sec-methods-population}
+
+- **Population.** Residents of the `r nrow(method$municipalities)`
+  municipalities of urban Santiago (the 32 of Santiago Province and Puente
+  Alto), by the municipality of residence written in the death record.
+- **Period.** Deaths in the warm seasons (1 November to 31 March) of
+  `r method$years[1]` to `r method$years[2]`: January to March and November to
+  December of each calendar year.
+- **Unit.** The death. The deaths dataset has one row per death; the
+  case-crossover dataset has one row per death and referent day.
+
+## Data sources {#sec-methods-sources}
+
+::: {.wide-table}
+
+| Source | Producer | Content | Period of the file | How it reached the project | Used for |
+|:-----|:------|:-----------|:-----|:------|:-----|
+| Death records | Department of Health Statistics and Information (DEIS), Ministry of Health of Chile; official open-data file of deaths, <https://deis.minsal.cl> | One row per death: date, sex, age and its unit, municipality of residence, place of death, underlying cause (ICD-10) and, for injuries, external cause | Official file: 1990 to 2023. Extract used here: residents of the Metropolitan Region who died in `r method$extract_years[1]` to `r method$extract_years[2]`, `r fmt(flow_step("^Records in the input"))` records | Extract cut from the official file by `Code/05_deis_extract.R` | Deaths dataset |
+| Exposure dataset | [Deliverable 1](deliverable_1_exposure.html#sec-exposure-dataset), `Data/Derived/exposure_2009_2020.csv` | Temperature, heatwave indicators, ozone and co-pollutants by municipality and day | `r format(as.Date(sprintf("%d-01-01", method$years[1])) - max(method$lags))` to `r sprintf("%d-12-31", method$years[2])` | Written by `Code/13_exposure_merge_qc.R` | Exposure of the referent days, lags `r min(method$lags)` to `r max(method$lags)` |
+
+: Sources of the data of this deliverable. {#tbl-sources}
+
+:::
+
+The death records are public and anonymous: they carry no name and no
+identifier of the person. The file is kept as received in `Data/Input`, is
+listed with its size and checksum in `Data/input_manifest.csv`, and the
+scripts stop if the file they read is not the listed one. The scripts read
+either the official file or an extract of it with the same columns.
+
+## Selection of the deaths {#sec-methods-selection}
+
+*Script: `Code/20_mortality_deis.R`. Every step is counted in
+`Output/Tables/mortality_flow.csv`.*
+
+1. Records with a date of death and a municipality of residence: `r fmt(flow_step("^With date of death"))` of the `r fmt(flow_step("^Records in the input"))` records of the input.
+2. Residents of the `r nrow(method$municipalities)` study municipalities: `r fmt(flow_step("^Residents of"))` deaths.
+3. Died in the study years: `r fmt(flow_step("^Died in [0-9]"))`.
+4. Died in the warm season: `r fmt(flow_step("^Died in the warm season"))`.
+5. Non-accidental cause: `r fmt(flow_step("^Non-accidental cause"))`. These are
+   the deaths of the analysis.
+
+Nothing is deleted at step 5: the deaths from other causes stay in the
+dataset, flagged, so that every exclusion can be counted
+([Source and selection](#sec-source-selection)).
+`r fmt(method$no_age_or_sex)` non-accidental deaths have no age or no sex
+recorded; they are part of the analyses of all the deaths and are missing only
+from the analyses by age or by sex.
+
+## Causes of death {#sec-methods-causes}
+
+The cause of a death is its underlying cause (field `DIAG1`), coded with the
+International Classification of Diseases, 10th revision (ICD-10). The groups
+are those of the analysis plan, defined on the first three characters of the
+code and written in `config/config.yml`. The script stops if a code does not
+have the form of an ICD-10 code.
+
+```{r}
+#| label: tbl-cause-groups
+#| tbl-cap: "Cause groups of the analysis plan: ICD-10 codes of the underlying cause and deaths of the warm seasons of 2009 to 2020 in the study municipalities. A death can belong to several groups."
+cause_table <- data.table(
+  group = sub(" \\(.*$", "", cause_labels[names(method$cause_groups)]),
+  codes = vapply(method$cause_groups, function(ranges) {
+    paste(sub("^(.{3})-\\1$", "\\1", unlist(ranges)), collapse = ", ")   # I63-I63 is written I63
+  }, character(1)),
+  deaths = vapply(names(method$cause_groups), function(group) sum(deaths[[group]]), numeric(1))
+)
+kable(cause_table, format.args = list(big.mark = ","),
+      col.names = c("Cause group", "ICD-10 codes", "Deaths"))
+```
+
+Two kinds of death fall outside non-accidental mortality (A00 to R99):
+
+- **Injuries**, coded S00 to T98 in the field of the underlying cause
+  (`DIAG1`), with their external cause (V01 to Y98) in a second field
+  (`DIAG2`). This is the exclusion that the plan asks for.
+- **U codes**, which in these years are COVID-19 (U07.1 and U07.2). They are
+  not named in the plan and fall outside the range A00 to R99; whether the
+  months of the pandemic stay in the analysis is a
+  [decision for the principal investigator](index.html).
+
+## Age, sex and place of death {#sec-methods-attributes}
+
+- **Age.** In completed years. An age recorded in months, days or hours is an
+  age under one year. Groups of the plan:
+  `r paste(method$age_labels, collapse = ", ")`.
+- **Sex.** Male or female, as recorded; any other value counts as not
+  recorded.
+- **Place of death.** Home, hospital or clinic, or other. It is kept in the
+  dataset and is not used in the models.
+
+## Case-crossover dataset {#sec-methods-case-crossover}
+
+*Script: `Code/21_case_crossover_dataset.R`; functions
+`build_case_crossover()` and `lagged_exposure()` of `Code/01_functions.R`.*
+
+**Referent days.** For death $i$, of a resident of municipality $m_i$ who
+died on day $d_i$, the referent days are the days of the same calendar year
+and month that fall on the same day of the week:
+
+$$R_i = \left\{\, t : \ \mathrm{year}(t) = \mathrm{year}(d_i), \ \ \mathrm{month}(t) = \mathrm{month}(d_i), \ \ \mathrm{weekday}(t) = \mathrm{weekday}(d_i) \,\right\}.$$
+
+The set holds the day of death and three or four control days, before and
+after it. Each death is one stratum of the analysis; within it the variable
+`case` is 1 on the day of death and 0 on the control days. The exposure is
+that of the municipality of residence, so the stratum is defined in time and
+in space. A month is either inside or outside the warm season: every control
+day of a warm-season death is a warm-season day.
+
+- Strata (deaths): `r fmt(dataset_item("^Deaths \\(strata\\)"))`.
+- Rows (deaths and referent days): `r fmt(dataset_item("^Rows"))`.
+- Deaths with three control days: `r fmt(dataset_item("with 3 control days"))`;
+  with four: `r fmt(dataset_item("with 4 control days"))`.
+
+**Exposure at lags `r min(method$lags)` to `r max(method$lags)`.** For
+exposure variable $x$, the value at lag $k$ of day $t$ in municipality $m$ is
+the value $k$ days earlier in the same municipality:
+
+$$x^{(k)}_{m,t} = x_{m,\,t-k}, \qquad k = `r paste(method$lags, collapse = ", ")`.$$
+
+The lag is applied to the day of death and to the control days alike. The
+exposure dataset starts `r max(method$lags)` days before 1 January
+`r method$years[1]` so that the first deaths of the period have their lagged
+exposure. The lagged values are kept for the
+`r fmt(dataset_item("^Municipality-days used as referent"))` municipality-days
+that are a referent day of at least one death, in
+`r fmt(dataset_item("^Lagged exposure columns"))` columns named
+`<variable>_lag<k>`: the heatwave indicators, the high-ozone flags, the
+temperature and the pollutant series.
+
+**Two files.** `Data/Derived/case_crossover.csv` holds the strata and the
+attributes of each death (sex, age group, cause groups);
+`Data/Derived/exposure_lagged.csv` holds the lagged exposures. Joining them on
+municipality and day gives the dataset of any model, for any definition of
+the exposure ([Exposure at lags 0 to 3](#sec-lagged-exposure)).
+
+## Checks {#sec-methods-checks}
+
+A check that fails stops the script.
+
+| Check | Where it is made |
+|:----------------|:-------------|
+| The input file is the one listed in the manifest (size and checksum) | `input_path()`, in every script |
+| Every underlying cause has the form of an ICD-10 code; every age has a known unit | `Code/20_mortality_deis.R` |
+| Every death has exactly one day of death and three or four control days among its referent days | `build_case_crossover()` |
+| Every referent day is a day of the exposure dataset | `Code/21_case_crossover_dataset.R` |
+| The exposure dataset has one row per municipality and day before it is lagged | `lagged_exposure()` |
+| Referent days, lags and ICD-10 ranges give the known answer on small examples | `tests/test_methods.R` ([Method checks](#sec-method-checks)) |
+
+: Checks of the deaths dataset and of the case-crossover dataset. {#tbl-checks}
+
+## Workflow and scripts {#sec-methods-workflow}
+
+`Code/run_all.R` runs the scripts in order, each in a new R session, and then
+renders the pages. The scripts are not run when a page is rendered.
+
+::: {.wide-table}
+
+| Script | Reads | Writes | Parts of this page |
+|:-------|:------|:--------------|:------|
+| `Code/05_deis_extract.R` (run once, outside `Code/run_all.R`) | Official DEIS file of deaths 1990 to 2023 | The extract of `Data/Input` | Data sources |
+| `Code/20_mortality_deis.R` | The extract of the death records | `Data/Derived/deaths_clean.csv`; `Output/Tables/mortality_flow.csv`, `mortality_excluded_causes.csv`, `mortality_by_cause_year.csv`, `mortality_by_municipality_year.csv` | Clean deaths dataset; mortality summary |
+| `Code/21_case_crossover_dataset.R` | `deaths_clean.csv`; `Data/Derived/exposure_2009_2020.csv` | `Data/Derived/case_crossover.csv`, `exposure_lagged.csv`; `Output/Tables/case_crossover_summary.csv` | Case-crossover analytic dataset; exposure at lags 0 to 3 |
+| `tests/test_methods.R` | Nothing: small examples built in the script | The list of checks shown in this page | Method checks |
+
+: Scripts of this deliverable, with what each one reads and writes. {#tbl-workflow}
+
+:::
+
+Shared code: `Code/00_setup.R` (folders, configuration, checks of the
+inputs) and `Code/01_functions.R` (the functions named above). All the
+parameters are in `config/config.yml`. The code of every script is in
+[R scripts](#sec-scripts).
+
+## Limits {#sec-methods-limits}
+
+- **The cause is the underlying cause of the death certificate.** Its coding
+  has errors that this analysis cannot measure; the broad group of
+  non-accidental mortality is less sensitive to them than the specific causes.
+- **The exposure is that of the municipality of residence.** Where the person
+  was on the days before death, and where the death occurred, are not known.
+- **Small groups.** Some specific causes have few deaths (table above), and
+  their estimates in deliverable 3 are imprecise.
+- **COVID-19.** Its deaths are outside the non-accidental definition, and the
+  warm-season months of 2020 are in the period: an open decision.
+- **Counts, not rates.** The tables of this page count deaths. Population
+  denominators enter with the attributable burden of deliverable 3.
+
+## References {#sec-methods-references}
+
+- Janes, H., Sheppard, L., and Lumley, T. (2005). Case-crossover analyses of
+  air pollution exposure data: referent selection strategies and their
+  implications for bias. *Epidemiology*, 16(6), 717-726.
+- Levy, D., Lumley, T., Sheppard, L., Kaufman, J., and Checkoway, H. (2001).
+  Referent selection in case-crossover analyses of acute health effects of air
+  pollution. *Epidemiology*, 12(2), 186-192.
+  <https://doi.org/10.1097/00001648-200103000-00010>.
+- Maclure, M. (1991). The case-crossover design: a method for studying
+  transient effects on the risk of acute events. *American Journal of
+  Epidemiology*, 133(2), 144-153.
+- Department of Health Statistics and Information (DEIS), Ministry of Health
+  of Chile. Deaths, official figures, open data. <https://deis.minsal.cl>.
 
 # Clean deaths dataset {#sec-deaths}
 
@@ -64,7 +324,7 @@ of residence, sex, age, place of death, the underlying cause (ICD-10) and one
 flag for each cause group of the analysis plan. Deaths outside non-accidental
 mortality stay in the file, flagged, so that every exclusion can be counted.
 
-## Source and selection
+## Source and selection {#sec-source-selection}
 
 The input is the official DEIS file of deaths 1990-2023 (open data, one row per
 death, with date, sex, age, municipality of residence and underlying cause).

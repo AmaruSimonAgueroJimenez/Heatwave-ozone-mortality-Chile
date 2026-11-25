@@ -25,7 +25,319 @@ definitions that the principal investigator has not confirmed.
 
 The tables and the figures of this page can be downloaded: each table has an
 **Excel** button above it, and each figure a **PNG, 600 dpi** button below it.
-Each part names the scripts and the files behind its tables and figures.
+Each part names the scripts and the files behind its tables and figures. The
+[Methodology](#sec-methodology), which opens the page, describes the data, the
+definitions and the methods.
+
+# Methodology {#sec-methodology}
+
+```{r}
+#| label: setup-methodology
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+options(knitr.kable.NA = "")
+# Every number quoted in the methodology is computed here, from the
+# configuration and the outputs of the scripts
+whole <- function(x) formatC(x, format = "f", digits = 0, big.mark = ",")
+method <- list()
+method$years <- get_param("study", "years")
+method$lags <- unlist(get_param("design", "lags_days"))
+method$lag_main <- get_param("models", "lag_main")
+method$conf_level <- get_param("models", "conf_level")
+method$heatwave_main <- get_param("models", "heatwave_main")
+method$ozone_main <- paste0(get_param("air_pollution", "ozone_series_main"), "_",
+                            get_param("air_pollution", "interpolation_method_main"))
+method$cutoff_main <- get_param("models", "ozone_cutoff_main")
+method$cause_groups <- names(get_param("mortality", "cause_groups"))
+method$age_labels <- unlist(get_param("mortality", "age_labels"))
+method$burden_outcomes <- unlist(get_param("burden", "outcomes"))
+method$rate_ages <- unlist(get_param("population", "rate_age_labels"))
+method$open_age <- get_param("population", "open_age")
+# Step of the continuous ozone term, written in its name (ozone_10ppb)
+method$ozone_step <- as.integer(gsub("[^0-9]", "", unique(
+  fread(file.path(dir_tables, "models_ozone_continuous.csv"), select = "term")$term)))
+method$dataset <- fread(file.path(dir_tables, "case_crossover_summary.csv"), encoding = "UTF-8")
+method$deaths <- method$dataset[grepl("^Deaths \\(strata\\)", item), value]
+method$rows <- method$dataset[grepl("^Rows", item), value]
+stopifnot(length(method$deaths) == 1, length(method$rows) == 1, length(method$ozone_step) == 1)
+# The grid of definitions, as fitted
+method_grid <- fread(file.path(dir_tables, "models_grid.csv"), encoding = "UTF-8",
+                     select = c("outcome", "heatwave", "ozone", "lag"))
+method$grid_heatwaves <- uniqueN(method_grid$heatwave)
+method$grid_ozone <- uniqueN(method_grid$ozone)
+method$grid_outcomes <- uniqueN(method_grid$outcome)
+method$grid_fits <- nrow(method_grid)
+stopifnot(method$grid_fits == method$grid_heatwaves * method$grid_ozone *
+            method$grid_outcomes * length(method$lags))
+rm(method_grid)
+```
+
+*Scripts of this deliverable: `Code/30_models_main.R` and
+`Code/31_attributable_burden.R`.
+[Workflow and scripts](#sec-methods-workflow) lists what each one reads and
+writes, and every part of the page names the scripts and the files behind its
+tables and figures.*
+
+## Aim and design {#sec-methods-aim}
+
+The question of the study is whether heatwaves and high ozone, together,
+raise mortality more than the sum of their separate effects: an interaction
+on the additive scale. This deliverable fits the models that answer it,
+measures the interaction, looks at causes of death and at subgroups of age
+and sex, and translates the odds ratios into deaths attributable to each
+exposure.
+
+The design is a case-crossover study (Maclure, 1991) with referent days
+stratified in time and space (Levy and others, 2001; Janes and others, 2005),
+built in [deliverable 2](deliverable_2_mortality.html#sec-methodology): each
+death is compared with the other days of the same municipality, year, month
+and day of the week. The analysis therefore uses only the differences
+of exposure between days of the same month in the same place. An odds ratio
+of this design estimates the ratio of the daily death rates on exposed and
+unexposed days.
+
+The results are preliminary: the definitions of heatwave and of high ozone
+are working values that the principal investigator has not confirmed.
+
+## Data {#sec-methods-data}
+
+| Dataset | Built in | Content |
+|:-----------|:---------|:----------------|
+| `Data/Derived/case_crossover.csv` | [Deliverable 2](deliverable_2_mortality.html#sec-case-crossover), `Code/21_case_crossover_dataset.R` | `r whole(method$deaths)` non-accidental deaths of the warm seasons of `r method$years[1]` to `r method$years[2]`, each with its three or four control days: `r whole(method$rows)` rows |
+| `Data/Derived/exposure_lagged.csv` | Deliverable 2, same script | Every exposure variable at lags `r min(method$lags)` to `r max(method$lags)`, by municipality and day |
+| `Data/Derived/exposure_2009_2020.csv` | [Deliverable 1](deliverable_1_exposure.html#sec-exposure-dataset), `Code/13_exposure_merge_qc.R` | Exposure of every municipality and day, to count the exposed days of the burden |
+| Population projections | National Statistics Institute (INE), projections by municipality, sex and single year of age, base 2017 | Population by municipality, year and age, for the rates per 100,000 |
+
+: Data behind the models and the burden. {#tbl-data}
+
+## Exposure {#sec-methods-exposure}
+
+The definitions are those of
+[deliverable 1](deliverable_1_exposure.html#sec-methodology). For municipality
+$m$ and day $t$:
+
+- $HW_{m,t}$ is 1 on a heatwave day and 0 otherwise. Working definition:
+  `r method$heatwave_main` (`r heatwave_label(method$heatwave_main)`).
+- $O3_{m,t}$ is 1 when ozone is above a percentile of the municipality and 0
+  otherwise. Working definition: series `r method$ozone_main` above the
+  `r method$cutoff_main`th percentile.
+- The compound exposure has four categories: E00 (neither), E10 (heatwave
+  only), E01 (high ozone only) and E11 (both).
+
+Each model uses the exposure of one day: the day of death (lag 0) or one of
+the `r max(method$lags)` days before it. The lag shown first is lag
+`r method$lag_main`, also a working value.
+
+## Models {#sec-methods-models}
+
+*Script: `Code/30_models_main.R`; functions `fit_conditional_logit()`,
+`odds_ratios()` and `compound_results()` of `Code/01_functions.R`.*
+
+**Conditional logistic regression.** For death $i$, with referent days $R_i$
+(the day of death $d_i$ and its control days) in municipality $m_i$, and
+exposure vector $x$ at lag $k$, the contribution to the likelihood is the
+probability that, of the days of the stratum, the death falls on the day it
+did:
+
+$$L(\beta) = \prod_{i} \frac{\exp\left(x_{m_i,\,d_i-k}^{\top}\,\beta\right)}{\sum_{t \in R_i} \exp\left(x_{m_i,\,t-k}^{\top}\,\beta\right)}.$$
+
+Nothing that is constant within a stratum enters the model: the stratum takes
+it out. The coefficients are log odds ratios; intervals are Wald intervals at
+`r 100 * method$conf_level`%.
+
+**Four models** for each outcome, subgroup and lag:
+
+| Model | Linear predictor | Reads as |
+|:------|:--------|:------------------|
+| Heatwave alone | $\beta_1\,HW$ | Odds ratio of death on a heatwave day |
+| Ozone alone | $\beta_2\,O3$ | Odds ratio of death on a high-ozone day |
+| Joint | $\beta_1\,HW + \beta_2\,O3$ | Each exposure adjusted for the other |
+| Compound categories | $\beta_{10}\,E10 + \beta_{01}\,E01 + \beta_{11}\,E11$ | Heatwave only, high ozone only and both, each against neither (E00) |
+
+: Models fitted for each outcome, subgroup and lag. {#tbl-model-forms}
+
+The compound model is the joint model with its interaction written as
+categories, and is the one the interaction measures and the burden come from.
+
+**How it is fitted.** Deaths of the same municipality and day share their
+referent days and their exposures. The dataset is therefore collapsed to one
+row per municipality, day of death and referent day, weighted by the number
+of deaths, and fitted with `survival::coxph()` (strata, Breslow method for
+ties), which gives the conditional logistic likelihood above. The test suite
+shows that the weighted fit equals the fit on the individual records, in
+coefficients and in standard errors. A stratum with a missing exposure on any
+of its days is left out whole, so that every stratum keeps its day of death.
+
+**Outcomes and subgroups.** The `r length(method$cause_groups)` cause groups
+of the plan ([deliverable 2](deliverable_2_mortality.html#sec-methods-causes));
+for each, all the deaths, the age groups
+`r paste(method$age_labels, collapse = ", ")` and each sex. Two subgroups are
+compared with a z-test on the difference of their log odds ratios, which are
+estimated on different deaths and are therefore independent.
+
+## Additive interaction {#sec-methods-interaction}
+
+*Function `additive_interaction()` of `Code/01_functions.R`.*
+
+With $OR_{10}$, $OR_{01}$ and $OR_{11}$ the odds ratios of the three exposed
+categories of the compound model against E00:
+
+$$\mathrm{REOI} = OR_{11} - OR_{10} - OR_{01} + 1, \qquad
+\mathrm{AP} = \frac{\mathrm{REOI}}{OR_{11}}, \qquad
+S = \frac{OR_{11} - 1}{(OR_{10} - 1) + (OR_{01} - 1)}.$$
+
+- **REOI**, the relative excess odds due to interaction (the relative excess
+  risk due to interaction, with odds ratios in place of risk ratios): the part
+  of the excess of the days with both exposures that the two single excesses
+  do not add up to. Zero means no additive interaction.
+- **AP**, the attributable proportion: that part as a share of $OR_{11}$.
+  Zero means no interaction.
+- **S**, the synergy index: the excess of the days with both, over the sum of
+  the two single excesses. One means no interaction.
+
+Standard errors come from the delta method, with the covariance matrix of the
+three log odds ratios (Hosmer and Lemeshow, 1992). The interval of S is built
+on the log scale and exists only when the joint excess and the sum of the
+single excesses are both positive. The ratio
+$OR_{11} / (OR_{10} \times OR_{01})$, the interaction on the multiplicative
+scale, is reported next to the three, as recommended for the presentation of
+interactions (Knol and VanderWeele, 2012).
+
+## The grid of definitions and continuous ozone {#sec-methods-grid}
+
+- **Grid.** The compound model is fitted for every combination of the
+  `r method$grid_heatwaves` heatwave definitions and the
+  `r method$grid_ozone` high-ozone flags (three ozone series, two
+  interpolation methods, three cut-offs), for `r method$grid_outcomes`
+  outcomes and `r length(method$lags)` lags: `r whole(method$grid_fits)` fits.
+  It shows how much the answer depends on the definitions. No correction for
+  multiple comparisons is applied: without any interaction, about
+  `r 100 - 100 * method$conf_level`% of the intervals would still exclude
+  zero. The definitions share most of their days, so the cells are not
+  independent pieces of evidence.
+- **Continuous ozone.** Ozone enters as a linear term, and its odds ratio is
+  given per `r method$ozone_step` ppb, for the six ozone series and each lag,
+  alone and with the heatwave indicator in the model.
+
+## Attributable mortality burden {#sec-methods-burden}
+
+*Script: `Code/31_attributable_burden.R`; function `attributable_deaths()`
+of `Code/01_functions.R`.*
+
+For municipality $i$, calendar year $t$, age group $j$ and exposure category
+$c$ (E10, E01 or E11), the analysis plan gives the excess deaths as
+
+$$ED_{itjc} = \text{Population}_{it} \times \text{Age proportion}_{itj} \times \text{Baseline daily rate}_{itj} \times (OR_{jc} - 1) \times \text{Exposure days}_{itc}.$$
+
+The baseline daily rate is the number of deaths per inhabitant and day on the
+warm-season days with neither exposure. The first three factors multiply to
+the deaths per day on those days, so the population cancels out:
+
+$$ED_{itjc} = \frac{D^{E00}_{itj}}{N^{E00}_{it}} \times (OR_{jc} - 1) \times N^{c}_{it},$$
+
+with $D^{E00}_{itj}$ the deaths on the days with neither exposure and
+$N^{E00}_{it}$, $N^{c}_{it}$ the number of days with neither exposure and in
+category $c$. This is the form that the script computes.
+
+- **Odds ratios.** Those of the compound model by age group, at the lag set
+  in the configuration (lag `r method$lag_main`). Script 31 fits the model
+  again to obtain the covariance of the odds ratios, and stops if they differ
+  from the table of script 30.
+- **Second estimate.** The attributable fraction among the exposed,
+  $(OR_{jc} - 1) / OR_{jc}$, applied to the deaths observed on the exposed
+  days. It does not assume that the days with neither exposure have the
+  baseline mortality of the exposed days, which fall in other weeks of the
+  season.
+- **Intervals.** By the delta method, from the covariance of the odds ratios.
+  Baseline rates and death counts are taken as fixed.
+- **Outcomes.** `r sub("^(.)", "\\U\\1", paste(gsub("_", "-", method$burden_outcomes), collapse = " and "), perl = TRUE)`
+  mortality.
+- **Rates per 100,000.** With the population of the INE projections. The
+  projections give single years of age up to `r method$open_age - 1` and one
+  group for `r method$open_age` or more, so rates are given for the age groups
+  `r paste(method$rate_ages, collapse = " and ")` and for the whole
+  population. The excess deaths by the age groups of the plan do not need the
+  population.
+
+## Checks {#sec-methods-checks}
+
+The functions behind the models are tested on examples with a known answer
+(`tests/test_methods.R`, at the start of every run of `Code/run_all.R`):
+
+| Check | What it shows |
+|:----------------|:----------------|
+| Weighted fit against the fit on individual records | Same coefficients and standard errors |
+| Simulated deaths with known odds ratios | The models recover them |
+| REOI, AP and S against `msm::deltamethod` | Same intervals as an independent calculation |
+| Attributable deaths | Excess equals expected deaths times OR − 1; categories and groups add up; the delta-method standard error agrees with simulation |
+
+: Checks of the methods of this deliverable. {#tbl-checks}
+
+In the scripts: a fit that gives a warning from the optimiser is counted and
+shown, and a category without deaths, where no odds ratio exists, is marked as
+not estimable and not as zero.
+
+## Workflow and scripts {#sec-methods-workflow}
+
+`Code/run_all.R` runs the scripts in order, each in a new R session, and then
+renders the pages. The scripts are not run when a page is rendered.
+
+::: {.wide-table}
+
+| Script | Reads | Writes | Parts of this page |
+|:-------|:------|:--------------|:------|
+| `Code/30_models_main.R` | `Data/Derived/case_crossover.csv`, `exposure_lagged.csv` | `Output/Tables/models_main_or.csv`, `models_main_interaction.csv`, `models_grid.csv`, `models_ozone_continuous.csv` | Main models and additive interaction; causes; subgroups; grid of definitions; continuous ozone |
+| `Code/31_attributable_burden.R` | The same two datasets; `Data/Derived/exposure_2009_2020.csv`; `models_main_or.csv`; INE population projections | `Output/Tables/burden_estimates.csv`, `burden_odds_ratios.csv`, `burden_baseline_rates.csv`, `burden_population.csv` | Attributable mortality burden |
+| `tests/test_methods.R` | Nothing: small examples built in the script | The list of checks | Checks |
+
+: Scripts of this deliverable, with what each one reads and writes. {#tbl-workflow}
+
+:::
+
+Shared code: `Code/00_setup.R`, `Code/01_functions.R` (the functions named
+above) and `Code/02_plot_style.R`. The fits of script 30 run in parallel; the
+results do not depend on the number of processes. All the parameters are in
+`config/config.yml`. The code of every script is in [R scripts](#sec-scripts).
+
+## Limits {#sec-methods-limits}
+
+- **Working definitions.** Heatwave, ozone series, cut-off and lag are not
+  confirmed; the grid shows how the answer moves with them.
+- **One lag per model.** Exposures of consecutive days are correlated, so the
+  odds ratio of a lag also carries its neighbours. The models with all the
+  lags together are in
+  [deliverable 4](deliverable_4_sensitivity.html#sec-lag-structure).
+- **No adjustment for other pollutants, humidity or temperature here.** It
+  is in [deliverable 4](deliverable_4_sensitivity.html#sec-sensitivity).
+- **Many comparisons.** Causes, subgroups, lags and the grid add up to
+  thousands of intervals, none corrected.
+- **Exposure of the municipality.** Every resident has the exposure of the
+  municipality; the errors of the ozone series are described in
+  [deliverable 1](deliverable_1_exposure.html#sec-ozone-validation).
+- **Burden.** The same odds ratio is applied to every municipality and year,
+  so differences between them come from baseline mortality and exposed days;
+  the intervals carry the uncertainty of the odds ratios only.
+
+## References {#sec-methods-references}
+
+- Hosmer, D. W., and Lemeshow, S. (1992). Confidence interval estimation of
+  interaction. *Epidemiology*, 3(5), 452-456.
+- Janes, H., Sheppard, L., and Lumley, T. (2005). Case-crossover analyses of
+  air pollution exposure data: referent selection strategies and their
+  implications for bias. *Epidemiology*, 16(6), 717-726.
+- Knol, M. J., and VanderWeele, T. J. (2012). Recommendations for presenting
+  analyses of effect modification and interaction. *International Journal of
+  Epidemiology*, 41(2), 514-520.
+- Levy, D., Lumley, T., Sheppard, L., Kaufman, J., and Checkoway, H. (2001).
+  Referent selection in case-crossover analyses of acute health effects of air
+  pollution. *Epidemiology*, 12(2), 186-192.
+  <https://doi.org/10.1097/00001648-200103000-00010>.
+- Maclure, M. (1991). The case-crossover design: a method for studying
+  transient effects on the risk of acute events. *American Journal of
+  Epidemiology*, 133(2), 144-153.
 
 # Main models and additive interaction {#sec-models}
 
@@ -97,21 +409,12 @@ findings to cite.
 
 ## Models
 
-For each death the day of death is compared with the control days of the same
-municipality, year, month and day of the week, by conditional logistic
-regression, at single-day lags 0 to 3:
-
-| Model | Linear predictor | Reads as |
-|---|---|---|
-| Heatwave alone | β₁ HW | Odds ratio of death on a heatwave day |
-| Ozone alone | β₂ O3high | Odds ratio of death on a high-ozone day |
-| Joint | β₁ HW + β₂ O3high | Each exposure adjusted for the other |
-| Compound categories | β₁₀ E10 + β₀₁ E01 + β₁₁ E11 | Heatwave only, high ozone only and both, against neither |
-
-Additive interaction comes from the compound model:
-REOI = OR₁₁ − OR₁₀ − OR₀₁ + 1, AP = REOI / OR₁₁ and
-S = (OR₁₁ − 1) / [(OR₁₀ − 1) + (OR₀₁ − 1)], with delta-method intervals.
-The multiplicative ratio OR₁₁ / (OR₁₀ × OR₀₁) is reported next to them.
+The models are conditional logistic regressions within the strata of the
+case-crossover design, one for each single-day lag: each exposure alone, the
+two together, and the four compound categories, from which the additive
+interaction (REOI, AP, S) is computed. Their forms and formulas are in
+[Models](#sec-methods-models) and
+[Additive interaction](#sec-methods-interaction).
 
 The days are split at one ozone cut-off, so the reference category (neither)
 holds every non-heatwave day at or below it. The plan words the reference as
@@ -464,6 +767,9 @@ choices.
 :::
 
 ## What is estimated
+
+The formulas are also in
+[Attributable mortality burden](#sec-methods-burden) of the methodology.
 
 The number of deaths that would not have occurred on days with a heatwave,
 with high ozone or with both, had those days carried the mortality of days

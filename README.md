@@ -20,9 +20,9 @@ Reports, once GitHub Pages is enabled for the `docs/` folder: <https://amarusimo
 |---|---|---|
 | 1 | Methodology, exposure dataset 2009-2020, data checks, maps and time series of every municipality | Done: scripts 10 to 13 and 18, page `docs/deliverable_1_exposure` |
 | | Validation of the ozone exposure | Done: scripts 12, 14, 16 and 17, same page |
-| 2 | Deaths by cause, age and sex; case-crossover dataset | Done: scripts 20 and 21, page `docs/deliverable_2_mortality` |
-| 3 | Models, additive interaction, subgroups, attributable burden | Done with the working definitions: scripts 30 and 31, page `docs/deliverable_3_models` |
-| 4 | Sensitivity analyses, distributed lag models, publication figures | Done with the working definitions: scripts 40, 41 and 50, page `docs/deliverable_4_sensitivity`. Final report pending |
+| 2 | Methodology, deaths by cause, age and sex; case-crossover dataset | Done: scripts 20 and 21, page `docs/deliverable_2_mortality` |
+| 3 | Methodology, models, additive interaction, subgroups, attributable burden | Done with the working definitions: scripts 30 and 31, page `docs/deliverable_3_models` |
+| 4 | Methodology, sensitivity analyses, distributed lag models, publication figures | Done with the working definitions: scripts 40, 41 and 50, page `docs/deliverable_4_sensitivity`. Final report pending |
 
 Every result depends on working definitions that the principal investigator has still to confirm. They are listed below and marked `TO CONFIRM` in `config/config.yml`.
 
@@ -90,9 +90,9 @@ One page for each deliverable of the data analysis, with one section for each pr
 |--------|----------|---------|
 | `docs/index` | | Overview and open decisions |
 | `docs/deliverable_1_exposure` | R | Deliverable 1: methodology (sources of the data and definitions), verification and quality control of the exposure data, validation of the ozone exposure, exposure dataset 2009-2020, municipal maps, and time series of single and compound exposure for every municipality and for their mean |
-| `docs/deliverable_2_mortality` | R | Deliverable 2: clean deaths dataset, mortality summary, case-crossover dataset with the exposure at lags 0 to 3 |
-| `docs/deliverable_3_models` | R | Deliverable 3: main models, additive interaction, subgroups and attributable mortality burden (preliminary) |
-| `docs/deliverable_4_sensitivity` | R | Deliverable 4: sensitivity analyses, all the lags in one model, publication figures (preliminary) |
+| `docs/deliverable_2_mortality` | R | Deliverable 2: methodology (design, death records, selection, cause groups, referent days), clean deaths dataset, mortality summary, case-crossover dataset with the exposure at lags 0 to 3 |
+| `docs/deliverable_3_models` | R | Deliverable 3: methodology (models, additive interaction and attributable burden, with their formulas), main models, additive interaction, subgroups and attributable mortality burden (preliminary) |
+| `docs/deliverable_4_sensitivity` | R | Deliverable 4: methodology (adjustments, reference category, ozone series, lag models), sensitivity analyses, all the lags in one model, publication figures (preliminary) |
 | `docs/py_01_exposure` | Python | Independent rebuild of the exposure dataset, compared with R |
 | `docs/py_02_models` | Python | Independent rebuild of the mortality selection and the models, compared with R |
 | `docs/py_03_burden_sensitivity_lags` | Python | Independent rebuild of the burden, the adjusted models and the models with all the lags, compared with R |

@@ -167,6 +167,10 @@ padding: 0.6rem 1.2rem; background: #0d366b; font-size: 0.9rem; }
 .site-nav .site-nav-home { font-weight: 600; margin-right: 0.8rem; }
 .site-nav .site-nav-group { color: #9ec5f4; font-size: 0.75rem; letter-spacing: 0.06em;
 text-transform: uppercase; margin-left: 0.6rem; }
+
+.wide-table { font-size: 0.9em; }
+.wide-table table { table-layout: fixed; width: 100%; }
+.wide-table td code, .wide-table td a { overflow-wrap: anywhere; }
 </style>
 
 <header id="title-block-header" class="quarto-title-block default">
@@ -223,7 +227,7 @@ text-transform: uppercase; margin-left: 0.6rem; }
 <tr class="odd">
 <td>1</td>
 <td><a href="deliverable_1_exposure.html">Data verification, quality control and maps of spatio-temporal trends</a></td>
-<td>Coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series; validation of the ozone exposure against the hourly SINCA records, by leave-one-station-out cross-validation of IDW and kriging and against the CAMS reanalysis; the exposure dataset for 2009-2020 with its codebook; municipal maps and time series of temperature, heatwaves, ozone and compound exposure, across the grid of definitions</td>
+<td>Methodology: sources of the data and definition of every variable; coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series; validation of the ozone exposure against the hourly SINCA records, by leave-one-station-out cross-validation of IDW and kriging and against the CAMS reanalysis; the exposure dataset for 2009-2020 with its codebook; municipal maps and time series of temperature, heatwaves, ozone and compound exposure, for every municipality and for their mean, and across the grid of definitions</td>
 <td>Done</td>
 </tr>
 <tr class="even">
@@ -272,7 +276,7 @@ text-transform: uppercase; margin-left: 0.6rem; }
 </tbody>
 </table>
 </div>
-<p>Every page shows its code folded next to each result. Each table has a button that saves it as an Excel file, and each figure a button that saves it as a PNG at 600 dpi. The R scripts are in <a href="https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code"><code>Code/</code></a> of the repository.</p>
+<p>Every page shows its code folded next to each result, and each section names the scripts and the files behind its tables and figures. Each table has a button that saves it as an Excel file, and each figure a button that saves it as a PNG at 600 dpi. The R scripts are in <a href="https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code"><code>Code/</code></a> of the repository.</p>
 </section>
 <section id="data-in-one-paragraph" class="level2">
 <h2 class="anchored" data-anchor-id="data-in-one-paragraph">Data in one paragraph</h2>
@@ -287,7 +291,8 @@ text-transform: uppercase; margin-left: 0.6rem; }
 <li><strong>The delivered ozone series understates the days with most ozone.</strong> Its station inputs were trimmed at the 99th percentile of the hourly values, which removes the afternoon peaks of the hottest days. (<a href="deliverable_1_exposure.html#sec-ozone-validation">Deliverable 1</a>)</li>
 <li><strong>Part of the delivered ozone series rests on imputed station values.</strong> Station-days without a validated measurement were filled by imputation; the Independencia monitor, which failed in 2016, has no validated record for most of that year. (<a href="deliverable_1_exposure.html#sec-ozone-validation">Deliverable 1</a>)</li>
 <li><strong>The plan names the daily maximum 8-hour mean (MDA8); the delivered series is a 24-hour mean.</strong> The exposure dataset now holds three ozone series: delivered, 24-hour mean rebuilt from validated records, and MDA8. (<a href="deliverable_1_exposure.html#sec-ozone-validation">Deliverable 1</a>)</li>
-<li><strong>A fixed threshold of 30 °C is not comparable across municipalities</strong>, because CR2MET values are means over the whole municipal area, mountains included. (<a href="deliverable_1_exposure.html#sec-quality-control">Deliverable 1</a>)</li>
+<li><strong>A fixed threshold of 30 °C is not comparable across municipalities</strong>, because the CR2MET value of a municipality describes its whole territory, mountains included. (<a href="deliverable_1_exposure.html#sec-quality-control">Deliverable 1</a>)</li>
+<li><strong>The temperature of a municipality is not always that of the place where people live.</strong> Lo Barnechea has the most heatwave days of the 33 (185 with the working definition, against 130 to 183 in the others): the CR2MET series describes the whole territory of the municipality, and its hot days come in longer spells. (<a href="deliverable_1_exposure.html#sec-heatwave-municipalities">Deliverable 1</a>)</li>
 <li><strong>COVID-19 deaths fall outside non-accidental mortality as defined in the plan</strong> (A00-R99). (<a href="deliverable_2_mortality.html#sec-deaths">Deliverable 2</a>)</li>
 </ol>
 </section>
@@ -331,56 +336,61 @@ text-transform: uppercase; margin-left: 0.6rem; }
 <td>Left missing</td>
 </tr>
 <tr class="odd">
+<td>Temperature of the municipalities that reach into the Andes</td>
+<td>The CR2MET series of the whole territory, as delivered</td>
+<td>Temperature of the populated area from the CR2MET grid; models without the municipality as a sensitivity analysis</td>
+</tr>
+<tr class="even">
 <td>Ozone series of the main analysis</td>
 <td>Delivered 24-hour mean (<code>o3</code>)</td>
 <td>Rebuilt 24-hour mean (<code>o3obs</code>), MDA8 (<code>o3mda8</code>)</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>Status of the hourly records</td>
 <td>Validated only</td>
 <td>Also preliminary and not validated</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>Interpolation method of the main analysis</td>
 <td>IDW</td>
 <td>Ordinary kriging</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>Scope of the ozone percentiles</td>
 <td>Within each municipality</td>
 <td>Pooled</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>Kriging values below zero</td>
 <td>Set to missing</td>
 <td>Truncated at zero</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>Headline definitions of the models</td>
 <td>Heatwave <code>hw_p95_2d</code>, ozone above the 75th percentile</td>
 <td>Any cell of the grid</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>Primary lag</td>
 <td>Lag 0</td>
 <td>Lag 1, or lags 0 to 3 together</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>Reference category</td>
 <td>Every non-heatwave day at or below the ozone cut-off</td>
 <td>Ozone at or below the 50th percentile, as worded in the plan</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>Temperature in the continuous models</td>
 <td>Percentile within the municipality, warm season</td>
 <td>Degrees Celsius</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td>Age groups of the rates per 100,000</td>
 <td>0-64 and 65 or more (INE gives one group for 80 or more)</td>
 <td>Another population source for 65-84 and 85 or more</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td>Months of the pandemic</td>
 <td>Kept, COVID-19 deaths outside the outcome</td>
 <td>Excluded</td>
@@ -1238,196 +1248,208 @@ border: 1px solid #b8c7da; border-radius: 0.9rem; cursor: pointer; }
 <span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>burden <span class="ot">&lt;-</span> <span class="fu">read_table</span>(<span class="st">&quot;burden_estimates.csv&quot;</span>)[</span>
 <span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>  outcome <span class="sc">==</span> <span class="st">&quot;non_accidental&quot;</span> <span class="sc">&amp;</span> lag <span class="sc">==</span> lag_main <span class="sc">&amp;</span> or_source <span class="sc">==</span> <span class="st">&quot;age-specific&quot;</span> <span class="sc">&amp;</span></span>
 <span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a>    level <span class="sc">==</span> <span class="st">&quot;total&quot;</span> <span class="sc">&amp;</span> category <span class="sc">==</span> <span class="st">&quot;any&quot;</span>]</span>
-<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a><span class="fu">## The study</span></span>
-<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a>Does a day that is both a heatwave day and a high-ozone day carry a risk of</span>
-<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a>death larger than the sum of the two separate risks? The study answers it for</span>
-<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>the 33 urban municipalities of Santiago (Santiago Province plus Puente Alto)</span>
-<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>in the warm seasons, 1 November to 31 March, of 2009 to 2020, with a</span>
-<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>space-time-stratified case-crossover design and conditional logistic</span>
-<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>regression.</span>
-<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>Principal investigator: Estela Blanco, Pontificia Universidad Católica de</span>
-<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>Chile. Data analysis: Amaru Agüero Jiménez. Funded by ANID FONDECYT 11240322.</span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a><span class="co"># Heatwave days of each municipality over the study period, working definition</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a>heatwave_days <span class="ot">&lt;-</span> <span class="fu">read_table</span>(<span class="st">&quot;series_annual_by_municipality.csv&quot;</span>)[</span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">is.na</span>(com), .(<span class="at">days =</span> <span class="fu">sum</span>(heatwave_days)), by <span class="ot">=</span> municipality][<span class="fu">order</span>(<span class="sc">-</span>days)]</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a><span class="fu">## The study</span></span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>Does a day that is both a heatwave day and a high-ozone day carry a risk of</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a>death larger than the sum of the two separate risks? The study answers it for</span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>the 33 urban municipalities of Santiago (Santiago Province plus Puente Alto)</span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>in the warm seasons, 1 November to 31 March, of 2009 to 2020, with a</span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>space-time-stratified case-crossover design and conditional logistic</span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>regression.</span>
 <span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a><span class="fu">## Deliverables</span></span>
-<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a>One page for each deliverable of the data analysis, with one section for each</span>
-<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a>product that was requested.</span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a>Principal investigator: Estela Blanco, Pontificia Universidad Católica de</span>
+<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a>Chile. Data analysis: Amaru Agüero Jiménez. Funded by ANID FONDECYT 11240322.</span>
+<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a><span class="fu">## Deliverables</span></span>
 <span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a>::: {.no-download}</span>
-<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="pp">|</span> Deliverable <span class="pp">|</span> Content <span class="pp">|</span> State <span class="pp">|</span></span>
-<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a><span class="pp">|---|---|---|---|</span></span>
-<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 1 <span class="pp">|</span> <span class="co">[</span><span class="ot">Data verification, quality control and maps of spatio-temporal trends</span><span class="co">](deliverable_1_exposure.html)</span> <span class="pp">|</span> Coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series; validation of the ozone exposure against the hourly SINCA records, by leave-one-station-out cross-validation of IDW and kriging and against the CAMS reanalysis; the exposure dataset for 2009-2020 with its codebook; municipal maps and time series of temperature, heatwaves, ozone and compound exposure, across the grid of definitions <span class="pp">|</span> Done <span class="pp">|</span></span>
-<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 2 <span class="pp">|</span> <span class="co">[</span><span class="ot">Deaths dataset, case-crossover dataset and mortality summary</span><span class="co">](deliverable_2_mortality.html)</span> <span class="pp">|</span> Selection of deaths, mortality by cause, age, sex, municipality and year, structure of the analytic dataset, exposure at lags 0 to 3, method checks <span class="pp">|</span> Done <span class="pp">|</span></span>
-<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 3 <span class="pp">|</span> <span class="co">[</span><span class="ot">Main models, additive interaction and mortality burden</span><span class="co">](deliverable_3_models.html)</span> <span class="pp">|</span> Odds ratios and additive interaction with the working definitions, by cause, age and sex, and across the grid of definitions; excess deaths by exposure category, age group, year and municipality <span class="pp">|</span> Done with the working definitions; to be rerun once they are confirmed <span class="pp">|</span></span>
-<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 4 <span class="pp">|</span> <span class="co">[</span><span class="ot">Sensitivity analyses and publication figures</span><span class="co">](deliverable_4_sensitivity.html)</span> <span class="pp">|</span> Adjustment for PM2.5, nitrogen dioxide, humidity and temperature, three ozone levels, alternative ozone series; all the lags in one model, across the grid of definitions, distributed lag non-linear model of temperature; publication figures <span class="pp">|</span> Analyses and figures done with the working definitions; final report pending <span class="pp">|</span></span>
-<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a>:::</span>
-<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a>Three more pages repeat the analysis in Python, independently of the R code,</span>
-<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a>and compare the results with those of R.</span>
+<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a>One page for each deliverable of the data analysis, with one section for each</span>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>product that was requested.</span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>::: {.no-download}</span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="pp">|</span> Deliverable <span class="pp">|</span> Content <span class="pp">|</span> State <span class="pp">|</span></span>
+<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a><span class="pp">|---|---|---|---|</span></span>
+<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 1 <span class="pp">|</span> <span class="co">[</span><span class="ot">Data verification, quality control and maps of spatio-temporal trends</span><span class="co">](deliverable_1_exposure.html)</span> <span class="pp">|</span> Methodology: sources of the data and definition of every variable; coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series; validation of the ozone exposure against the hourly SINCA records, by leave-one-station-out cross-validation of IDW and kriging and against the CAMS reanalysis; the exposure dataset for 2009-2020 with its codebook; municipal maps and time series of temperature, heatwaves, ozone and compound exposure, for every municipality and for their mean, and across the grid of definitions <span class="pp">|</span> Done <span class="pp">|</span></span>
+<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 2 <span class="pp">|</span> <span class="co">[</span><span class="ot">Deaths dataset, case-crossover dataset and mortality summary</span><span class="co">](deliverable_2_mortality.html)</span> <span class="pp">|</span> Selection of deaths, mortality by cause, age, sex, municipality and year, structure of the analytic dataset, exposure at lags 0 to 3, method checks <span class="pp">|</span> Done <span class="pp">|</span></span>
+<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 3 <span class="pp">|</span> <span class="co">[</span><span class="ot">Main models, additive interaction and mortality burden</span><span class="co">](deliverable_3_models.html)</span> <span class="pp">|</span> Odds ratios and additive interaction with the working definitions, by cause, age and sex, and across the grid of definitions; excess deaths by exposure category, age group, year and municipality <span class="pp">|</span> Done with the working definitions; to be rerun once they are confirmed <span class="pp">|</span></span>
+<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 4 <span class="pp">|</span> <span class="co">[</span><span class="ot">Sensitivity analyses and publication figures</span><span class="co">](deliverable_4_sensitivity.html)</span> <span class="pp">|</span> Adjustment for PM2.5, nitrogen dioxide, humidity and temperature, three ozone levels, alternative ozone series; all the lags in one model, across the grid of definitions, distributed lag non-linear model of temperature; publication figures <span class="pp">|</span> Analyses and figures done with the working definitions; final report pending <span class="pp">|</span></span>
+<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a>:::</span>
 <span id="cb2-79"><a href="#cb2-79" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-80"><a href="#cb2-80" aria-hidden="true" tabindex="-1"></a>::: {.no-download}</span>
-<span id="cb2-81"><a href="#cb2-81" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-82"><a href="#cb2-82" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Page <span class="pp">|</span> Content <span class="pp">|</span></span>
-<span id="cb2-83"><a href="#cb2-83" aria-hidden="true" tabindex="-1"></a><span class="pp">|---|---|</span></span>
-<span id="cb2-84"><a href="#cb2-84" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="co">[</span><span class="ot">Exposure dataset in Python</span><span class="co">](py_01_exposure.html)</span> <span class="pp">|</span> Independent rebuild of the exposure dataset, compared with R column by column <span class="pp">|</span></span>
-<span id="cb2-85"><a href="#cb2-85" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="co">[</span><span class="ot">Mortality and models in Python</span><span class="co">](py_02_models.html)</span> <span class="pp">|</span> Independent rebuild of the selection of deaths, the referent days and the regression, compared with R <span class="pp">|</span></span>
-<span id="cb2-86"><a href="#cb2-86" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="co">[</span><span class="ot">Burden, sensitivity and lags in Python</span><span class="co">](py_03_burden_sensitivity_lags.html)</span> <span class="pp">|</span> Independent rebuild of the burden, the adjusted models and the models with all the lags, compared with R <span class="pp">|</span></span>
-<span id="cb2-87"><a href="#cb2-87" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-88"><a href="#cb2-88" aria-hidden="true" tabindex="-1"></a>:::</span>
-<span id="cb2-89"><a href="#cb2-89" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-90"><a href="#cb2-90" aria-hidden="true" tabindex="-1"></a>Every page shows its code folded next to each result. Each table has a button</span>
-<span id="cb2-91"><a href="#cb2-91" aria-hidden="true" tabindex="-1"></a>that saves it as an Excel file, and each figure a button that saves it as a</span>
-<span id="cb2-92"><a href="#cb2-92" aria-hidden="true" tabindex="-1"></a>PNG at 600 dpi. The R scripts are in</span>
-<span id="cb2-93"><a href="#cb2-93" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">`Code/`</span><span class="co">](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code)</span></span>
-<span id="cb2-94"><a href="#cb2-94" aria-hidden="true" tabindex="-1"></a>of the repository.</span>
-<span id="cb2-95"><a href="#cb2-95" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-96"><a href="#cb2-96" aria-hidden="true" tabindex="-1"></a><span class="fu">## Data in one paragraph</span></span>
-<span id="cb2-97"><a href="#cb2-97" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-98"><a href="#cb2-98" aria-hidden="true" tabindex="-1"></a>Temperature comes from CR2MET v2.5 (daily maximum and minimum by municipality).</span>
-<span id="cb2-99"><a href="#cb2-99" aria-hidden="true" tabindex="-1"></a>Ozone, PM2.5 and nitrogen dioxide come from the SINCA monitoring network,</span>
-<span id="cb2-100"><a href="#cb2-100" aria-hidden="true" tabindex="-1"></a>interpolated to one point per municipality by inverse distance weighting and</span>
-<span id="cb2-101"><a href="#cb2-101" aria-hidden="true" tabindex="-1"></a>ordinary kriging. Deaths come from the open records of the Department of Health</span>
-<span id="cb2-102"><a href="#cb2-102" aria-hidden="true" tabindex="-1"></a>Statistics and Information (DEIS). The exposure dataset has</span>
-<span id="cb2-103"><a href="#cb2-103" aria-hidden="true" tabindex="-1"></a><span class="in">`r fmt(alignment$rows[1])`</span> municipality-days; the mortality dataset has</span>
-<span id="cb2-104"><a href="#cb2-104" aria-hidden="true" tabindex="-1"></a><span class="in">`r fmt(flow[step == &quot;Non-accidental cause (A00-R99)&quot;, deaths])`</span> non-accidental</span>
-<span id="cb2-105"><a href="#cb2-105" aria-hidden="true" tabindex="-1"></a>deaths.</span>
-<span id="cb2-106"><a href="#cb2-106" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-107"><a href="#cb2-107" aria-hidden="true" tabindex="-1"></a><span class="fu">## Findings of the data checks</span></span>
-<span id="cb2-108"><a href="#cb2-108" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-109"><a href="#cb2-109" aria-hidden="true" tabindex="-1"></a>These are the points a reader of the results should know before anything else.</span>
-<span id="cb2-110"><a href="#cb2-110" aria-hidden="true" tabindex="-1"></a>Each is documented in the deliverable named.</span>
-<span id="cb2-111"><a href="#cb2-111" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-112"><a href="#cb2-112" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**The reference heatwave script counts consecutive days across</span>
-<span id="cb2-113"><a href="#cb2-113" aria-hidden="true" tabindex="-1"></a>   municipalities.** In <span class="in">`HeatWave_PretermBirth_Chile`</span>, the lag that defines</span>
-<span id="cb2-114"><a href="#cb2-114" aria-hidden="true" tabindex="-1"></a>   &quot;consecutive days&quot; runs over rows of a table with all municipalities</span>
-<span id="cb2-115"><a href="#cb2-115" aria-hidden="true" tabindex="-1"></a>   stacked. This project counts them within each municipality.</span>
-<span id="cb2-116"><a href="#cb2-116" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-quality-control)</span>)</span>
-<span id="cb2-117"><a href="#cb2-117" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**CR2MET has no 29 February.** The three leap days of the study period are</span>
-<span id="cb2-118"><a href="#cb2-118" aria-hidden="true" tabindex="-1"></a>   filled by interpolation and flagged. (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-quality-control)</span>)</span>
-<span id="cb2-119"><a href="#cb2-119" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**The delivered ozone series understates the days with most ozone.** Its</span>
-<span id="cb2-120"><a href="#cb2-120" aria-hidden="true" tabindex="-1"></a>   station inputs were trimmed at the 99th percentile of the hourly values,</span>
-<span id="cb2-121"><a href="#cb2-121" aria-hidden="true" tabindex="-1"></a>   which removes the afternoon peaks of the hottest days.</span>
-<span id="cb2-122"><a href="#cb2-122" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-ozone-validation)</span>)</span>
-<span id="cb2-123"><a href="#cb2-123" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**Part of the delivered ozone series rests on imputed station values.**</span>
-<span id="cb2-124"><a href="#cb2-124" aria-hidden="true" tabindex="-1"></a>   Station-days without a validated measurement were filled by imputation; the</span>
-<span id="cb2-125"><a href="#cb2-125" aria-hidden="true" tabindex="-1"></a>   Independencia monitor, which failed in 2016, has no validated record for</span>
-<span id="cb2-126"><a href="#cb2-126" aria-hidden="true" tabindex="-1"></a>   most of that year. (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-ozone-validation)</span>)</span>
-<span id="cb2-127"><a href="#cb2-127" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>**The plan names the daily maximum 8-hour mean (MDA8); the delivered series</span>
-<span id="cb2-128"><a href="#cb2-128" aria-hidden="true" tabindex="-1"></a>   is a 24-hour mean.** The exposure dataset now holds three ozone series:</span>
-<span id="cb2-129"><a href="#cb2-129" aria-hidden="true" tabindex="-1"></a>   delivered, 24-hour mean rebuilt from validated records, and MDA8.</span>
-<span id="cb2-130"><a href="#cb2-130" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-ozone-validation)</span>)</span>
-<span id="cb2-131"><a href="#cb2-131" aria-hidden="true" tabindex="-1"></a><span class="ss">6. </span>**A fixed threshold of 30 °C is not comparable across municipalities**,</span>
-<span id="cb2-132"><a href="#cb2-132" aria-hidden="true" tabindex="-1"></a>   because CR2MET values are means over the whole municipal area, mountains</span>
-<span id="cb2-133"><a href="#cb2-133" aria-hidden="true" tabindex="-1"></a>   included. (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-quality-control)</span>)</span>
-<span id="cb2-134"><a href="#cb2-134" aria-hidden="true" tabindex="-1"></a><span class="ss">7. </span>**COVID-19 deaths fall outside non-accidental mortality as defined in the</span>
-<span id="cb2-135"><a href="#cb2-135" aria-hidden="true" tabindex="-1"></a>   plan** (A00-R99). (<span class="co">[</span><span class="ot">Deliverable 2</span><span class="co">](deliverable_2_mortality.html#sec-deaths)</span>)</span>
-<span id="cb2-136"><a href="#cb2-136" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-137"><a href="#cb2-137" aria-hidden="true" tabindex="-1"></a><span class="fu">## Preliminary results</span></span>
-<span id="cb2-138"><a href="#cb2-138" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-139"><a href="#cb2-139" aria-hidden="true" tabindex="-1"></a>With the working definitions, which the principal investigator has not</span>
-<span id="cb2-140"><a href="#cb2-140" aria-hidden="true" tabindex="-1"></a>confirmed (heatwave <span class="in">`r get_param(&quot;models&quot;, &quot;heatwave_main&quot;)`</span>, ozone above the</span>
-<span id="cb2-141"><a href="#cb2-141" aria-hidden="true" tabindex="-1"></a><span class="in">`r get_param(&quot;models&quot;, &quot;ozone_cutoff_main&quot;)`</span>th percentile of the municipality</span>
-<span id="cb2-142"><a href="#cb2-142" aria-hidden="true" tabindex="-1"></a>in the delivered series, lag <span class="in">`r lag_main`</span>). They are not findings to cite.</span>
-<span id="cb2-143"><a href="#cb2-143" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-144"><a href="#cb2-144" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**Odds of non-accidental death against days with neither exposure:**</span>
-<span id="cb2-145"><a href="#cb2-145" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r or_main(&quot;e10&quot;)`</span> on heatwave-only days, <span class="in">`r or_main(&quot;e01&quot;)`</span> on</span>
-<span id="cb2-146"><a href="#cb2-146" aria-hidden="true" tabindex="-1"></a>   high-ozone-only days and <span class="in">`r or_main(&quot;e11&quot;)`</span> on days with both.</span>
-<span id="cb2-147"><a href="#cb2-147" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 3</span><span class="co">](deliverable_3_models.html#sec-models)</span>)</span>
-<span id="cb2-148"><a href="#cb2-148" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**No additive interaction:** REOI <span class="in">`r reoi_main`</span>. Across causes, age groups,</span>
-<span id="cb2-149"><a href="#cb2-149" aria-hidden="true" tabindex="-1"></a>   sex and lags, <span class="in">`r reoi_excluding_zero`</span> of the <span class="in">`r nrow(reoi_all)`</span> intervals</span>
-<span id="cb2-150"><a href="#cb2-150" aria-hidden="true" tabindex="-1"></a>   exclude zero, in both directions, about what chance alone gives.</span>
-<span id="cb2-151"><a href="#cb2-151" aria-hidden="true" tabindex="-1"></a>   Adjustment and the choice of ozone series do not change it.</span>
-<span id="cb2-152"><a href="#cb2-152" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverables 3</span><span class="co">](deliverable_3_models.html#sec-interaction)</span> and</span>
-<span id="cb2-153"><a href="#cb2-153" aria-hidden="true" tabindex="-1"></a>   <span class="co">[</span><span class="ot">4</span><span class="co">](deliverable_4_sensitivity.html#sec-sensitivity)</span>)</span>
-<span id="cb2-154"><a href="#cb2-154" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**The associations are on the day of exposure and the day after.** With</span>
-<span id="cb2-155"><a href="#cb2-155" aria-hidden="true" tabindex="-1"></a>   the four lags in one model the odds ratios at lags 2 and 3 lie between</span>
-<span id="cb2-156"><a href="#cb2-156" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r fmt(min(later$or), 2)`</span> and <span class="in">`r fmt(max(later$or), 2)`</span>.</span>
-<span id="cb2-157"><a href="#cb2-157" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 4</span><span class="co">](deliverable_4_sensitivity.html#sec-lag-structure)</span>)</span>
-<span id="cb2-158"><a href="#cb2-158" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**Over the four days after exposure the picture is less clear.** With the</span>
-<span id="cb2-159"><a href="#cb2-159" aria-hidden="true" tabindex="-1"></a>   four lags in one model the cumulative REOI is positive in</span>
-<span id="cb2-160"><a href="#cb2-160" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r lags_grid[estimate_reoi &gt; 0, .N]`</span> of the <span class="in">`r nrow(lags_grid)`</span> combinations</span>
-<span id="cb2-161"><a href="#cb2-161" aria-hidden="true" tabindex="-1"></a>   of heatwave definition and ozone cut-off, and its interval excludes zero in</span>
-<span id="cb2-162"><a href="#cb2-162" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r lags_grid[low_reoi &gt; 0, .N]`</span>, mostly with the 30 °C and EHF definitions.</span>
-<span id="cb2-163"><a href="#cb2-163" aria-hidden="true" tabindex="-1"></a>   With the working definition it has the same sign and an interval that</span>
-<span id="cb2-164"><a href="#cb2-164" aria-hidden="true" tabindex="-1"></a>   includes zero. Exploratory. (<span class="co">[</span><span class="ot">Deliverable 4</span><span class="co">](deliverable_4_sensitivity.html#sec-lag-structure)</span>)</span>
-<span id="cb2-165"><a href="#cb2-165" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>**The association with high ozone alone does not survive adjustment:**</span>
-<span id="cb2-166"><a href="#cb2-166" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r ozone_adjusted`</span> with PM2.5, nitrogen dioxide and humidity in the model,</span>
-<span id="cb2-167"><a href="#cb2-167" aria-hidden="true" tabindex="-1"></a>   and most of the association of ozone is shared with temperature.</span>
-<span id="cb2-168"><a href="#cb2-168" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 4</span><span class="co">](deliverable_4_sensitivity.html#sec-sensitivity)</span>)</span>
-<span id="cb2-169"><a href="#cb2-169" aria-hidden="true" tabindex="-1"></a><span class="ss">6. </span>**Attributable burden:** <span class="in">`r ci(burden$excess, burden$excess_low, burden$excess_high, 0)`</span></span>
-<span id="cb2-170"><a href="#cb2-170" aria-hidden="true" tabindex="-1"></a>   excess deaths in the warm seasons of 2009 to 2020,</span>
-<span id="cb2-171"><a href="#cb2-171" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r fmt(burden$excess_pct_of_deaths, 1)`</span>% of the non-accidental deaths, with</span>
-<span id="cb2-172"><a href="#cb2-172" aria-hidden="true" tabindex="-1"></a>   unadjusted odds ratios. (<span class="co">[</span><span class="ot">Deliverable 3</span><span class="co">](deliverable_3_models.html#sec-burden)</span>)</span>
-<span id="cb2-173"><a href="#cb2-173" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-174"><a href="#cb2-174" aria-hidden="true" tabindex="-1"></a><span class="fu">## Decisions pending</span></span>
-<span id="cb2-175"><a href="#cb2-175" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-176"><a href="#cb2-176" aria-hidden="true" tabindex="-1"></a>The pipeline runs on working values marked <span class="in">`TO CONFIRM`</span> in</span>
-<span id="cb2-177"><a href="#cb2-177" aria-hidden="true" tabindex="-1"></a><span class="in">`config/config.yml`</span>. Changing one of them and running <span class="in">`Code/run_all.R`</span> rebuilds</span>
-<span id="cb2-178"><a href="#cb2-178" aria-hidden="true" tabindex="-1"></a>everything.</span>
-<span id="cb2-179"><a href="#cb2-179" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-180"><a href="#cb2-180" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Decision <span class="pp">|</span> Working value <span class="pp">|</span> Alternatives <span class="pp">|</span></span>
-<span id="cb2-181"><a href="#cb2-181" aria-hidden="true" tabindex="-1"></a><span class="pp">|---|---|---|</span></span>
-<span id="cb2-182"><a href="#cb2-182" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Season of the temperature percentiles <span class="pp">|</span> All days of the year <span class="pp">|</span> Warm season only <span class="pp">|</span></span>
-<span id="cb2-183"><a href="#cb2-183" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 29 February <span class="pp">|</span> Interpolated <span class="pp">|</span> Left missing <span class="pp">|</span></span>
-<span id="cb2-184"><a href="#cb2-184" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Ozone series of the main analysis <span class="pp">|</span> Delivered 24-hour mean (<span class="in">`o3`</span>) <span class="pp">|</span> Rebuilt 24-hour mean (<span class="in">`o3obs`</span>), MDA8 (<span class="in">`o3mda8`</span>) <span class="pp">|</span></span>
-<span id="cb2-185"><a href="#cb2-185" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Status of the hourly records <span class="pp">|</span> Validated only <span class="pp">|</span> Also preliminary and not validated <span class="pp">|</span></span>
-<span id="cb2-186"><a href="#cb2-186" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Interpolation method of the main analysis <span class="pp">|</span> IDW <span class="pp">|</span> Ordinary kriging <span class="pp">|</span></span>
-<span id="cb2-187"><a href="#cb2-187" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Scope of the ozone percentiles <span class="pp">|</span> Within each municipality <span class="pp">|</span> Pooled <span class="pp">|</span></span>
-<span id="cb2-188"><a href="#cb2-188" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Kriging values below zero <span class="pp">|</span> Set to missing <span class="pp">|</span> Truncated at zero <span class="pp">|</span></span>
-<span id="cb2-189"><a href="#cb2-189" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Headline definitions of the models <span class="pp">|</span> Heatwave <span class="in">`hw_p95_2d`</span>, ozone above the 75th percentile <span class="pp">|</span> Any cell of the grid <span class="pp">|</span></span>
-<span id="cb2-190"><a href="#cb2-190" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Primary lag <span class="pp">|</span> Lag 0 <span class="pp">|</span> Lag 1, or lags 0 to 3 together <span class="pp">|</span></span>
-<span id="cb2-191"><a href="#cb2-191" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Reference category <span class="pp">|</span> Every non-heatwave day at or below the ozone cut-off <span class="pp">|</span> Ozone at or below the 50th percentile, as worded in the plan <span class="pp">|</span></span>
-<span id="cb2-192"><a href="#cb2-192" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Temperature in the continuous models <span class="pp">|</span> Percentile within the municipality, warm season <span class="pp">|</span> Degrees Celsius <span class="pp">|</span></span>
-<span id="cb2-193"><a href="#cb2-193" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Age groups of the rates per 100,000 <span class="pp">|</span> 0-64 and 65 or more (INE gives one group for 80 or more) <span class="pp">|</span> Another population source for 65-84 and 85 or more <span class="pp">|</span></span>
-<span id="cb2-194"><a href="#cb2-194" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Months of the pandemic <span class="pp">|</span> Kept, COVID-19 deaths outside the outcome <span class="pp">|</span> Excluded <span class="pp">|</span></span>
-<span id="cb2-195"><a href="#cb2-195" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-196"><a href="#cb2-196" aria-hidden="true" tabindex="-1"></a><span class="fu">## Reproducing the work</span></span>
-<span id="cb2-197"><a href="#cb2-197" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-198"><a href="#cb2-198" aria-hidden="true" tabindex="-1"></a>Two commands, from the project folder, run everything:</span>
-<span id="cb2-199"><a href="#cb2-199" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-200"><a href="#cb2-200" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb2-201"><a href="#cb2-201" aria-hidden="true" tabindex="-1"></a><span class="in">Rscript Code/run_all.R</span></span>
-<span id="cb2-202"><a href="#cb2-202" aria-hidden="true" tabindex="-1"></a><span class="in">python3 Code/run_python.py</span></span>
-<span id="cb2-203"><a href="#cb2-203" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
-<span id="cb2-204"><a href="#cb2-204" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-205"><a href="#cb2-205" aria-hidden="true" tabindex="-1"></a>The first is the R pipeline, which in RStudio is started with the Source button</span>
-<span id="cb2-206"><a href="#cb2-206" aria-hidden="true" tabindex="-1"></a>on <span class="in">`Code/run_all.R`</span>. It installs the R packages that are missing, checks the</span>
-<span id="cb2-207"><a href="#cb2-207" aria-hidden="true" tabindex="-1"></a>inputs, runs the checks of the methods, the scripts in order and the R</span>
-<span id="cb2-208"><a href="#cb2-208" aria-hidden="true" tabindex="-1"></a>reports, and then compares every table with its copy from before the run. The</span>
-<span id="cb2-209"><a href="#cb2-209" aria-hidden="true" tabindex="-1"></a>second renders the reports written in Python, which compare their own results</span>
-<span id="cb2-210"><a href="#cb2-210" aria-hidden="true" tabindex="-1"></a>with those of R; it prepares its Python packages by itself and is not needed</span>
-<span id="cb2-211"><a href="#cb2-211" aria-hidden="true" tabindex="-1"></a>by the first. The whole project runs from its own folder: the scripts find it</span>
-<span id="cb2-212"><a href="#cb2-212" aria-hidden="true" tabindex="-1"></a>through the RStudio project file, and no path of a particular computer appears</span>
-<span id="cb2-213"><a href="#cb2-213" aria-hidden="true" tabindex="-1"></a>in the code. Three files make a run repeatable on another computer:</span>
-<span id="cb2-214"><a href="#cb2-214" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-215"><a href="#cb2-215" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`Data/input_manifest.csv`</span> gives the size and checksum of every input file.</span>
-<span id="cb2-216"><a href="#cb2-216" aria-hidden="true" tabindex="-1"></a>  Each script stops if an input is missing or is not the listed file. The</span>
-<span id="cb2-217"><a href="#cb2-217" aria-hidden="true" tabindex="-1"></a>  inputs and their sources are described in <span class="in">`Data/README.md`</span>; none of the data</span>
-<span id="cb2-218"><a href="#cb2-218" aria-hidden="true" tabindex="-1"></a>  are in the repository.</span>
-<span id="cb2-219"><a href="#cb2-219" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`Output/run_environment.txt`</span> and <span class="in">`Output/run_environment_python.txt`</span></span>
-<span id="cb2-220"><a href="#cb2-220" aria-hidden="true" tabindex="-1"></a>  describe the machine that last ran each of the two, which produced the</span>
-<span id="cb2-221"><a href="#cb2-221" aria-hidden="true" tabindex="-1"></a>  tables of the repository: system, R, Quarto, Python and package versions.</span>
-<span id="cb2-222"><a href="#cb2-222" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`renv.lock`</span> and <span class="in">`requirements.txt`</span> hold a complete set of package versions,</span>
-<span id="cb2-223"><a href="#cb2-223" aria-hidden="true" tabindex="-1"></a>  those of the first machine on which the project was run. The two files above</span>
-<span id="cb2-224"><a href="#cb2-224" aria-hidden="true" tabindex="-1"></a>  list where a machine differs from them.</span>
-<span id="cb2-225"><a href="#cb2-225" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb2-226"><a href="#cb2-226" aria-hidden="true" tabindex="-1"></a>The pipeline has been run from the inputs on two machines: Linux with R 4.3.3,</span>
-<span id="cb2-227"><a href="#cb2-227" aria-hidden="true" tabindex="-1"></a>and macOS on Apple silicon with R 4.5.2 and the current packages. The results</span>
-<span id="cb2-228"><a href="#cb2-228" aria-hidden="true" tabindex="-1"></a>of the main analysis agree between them within a relative difference of 2e-11.</span>
-<span id="cb2-229"><a href="#cb2-229" aria-hidden="true" tabindex="-1"></a>The results built on the ordinary kriging that the project computes itself</span>
-<span id="cb2-230"><a href="#cb2-230" aria-hidden="true" tabindex="-1"></a>(the rebuilt series <span class="in">`o3obs_ok`</span> and <span class="in">`o3mda8_ok`</span>, and the cross-validation) differ</span>
-<span id="cb2-231"><a href="#cb2-231" aria-hidden="true" tabindex="-1"></a>from the third decimal of their odds ratios: on about one day in a hundred the</span>
-<span id="cb2-232"><a href="#cb2-232" aria-hidden="true" tabindex="-1"></a>kriging system is close to singular and its solution changes with rounding in</span>
-<span id="cb2-233"><a href="#cb2-233" aria-hidden="true" tabindex="-1"></a>the last digit, which the two machines do not do in the same way. Inverse</span>
-<span id="cb2-234"><a href="#cb2-234" aria-hidden="true" tabindex="-1"></a>distance weighting, used for the main analysis, gives the same values on both.</span>
-<span id="cb2-235"><a href="#cb2-235" aria-hidden="true" tabindex="-1"></a>On each machine a second run gives the tables of the first. The section</span>
-<span id="cb2-236"><a href="#cb2-236" aria-hidden="true" tabindex="-1"></a>&quot;Reproducibility&quot; of the README of the repository has the details.</span>
+<span id="cb2-80"><a href="#cb2-80" aria-hidden="true" tabindex="-1"></a>Three more pages repeat the analysis in Python, independently of the R code,</span>
+<span id="cb2-81"><a href="#cb2-81" aria-hidden="true" tabindex="-1"></a>and compare the results with those of R.</span>
+<span id="cb2-82"><a href="#cb2-82" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-83"><a href="#cb2-83" aria-hidden="true" tabindex="-1"></a>::: {.no-download}</span>
+<span id="cb2-84"><a href="#cb2-84" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-85"><a href="#cb2-85" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Page <span class="pp">|</span> Content <span class="pp">|</span></span>
+<span id="cb2-86"><a href="#cb2-86" aria-hidden="true" tabindex="-1"></a><span class="pp">|---|---|</span></span>
+<span id="cb2-87"><a href="#cb2-87" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="co">[</span><span class="ot">Exposure dataset in Python</span><span class="co">](py_01_exposure.html)</span> <span class="pp">|</span> Independent rebuild of the exposure dataset, compared with R column by column <span class="pp">|</span></span>
+<span id="cb2-88"><a href="#cb2-88" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="co">[</span><span class="ot">Mortality and models in Python</span><span class="co">](py_02_models.html)</span> <span class="pp">|</span> Independent rebuild of the selection of deaths, the referent days and the regression, compared with R <span class="pp">|</span></span>
+<span id="cb2-89"><a href="#cb2-89" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> <span class="co">[</span><span class="ot">Burden, sensitivity and lags in Python</span><span class="co">](py_03_burden_sensitivity_lags.html)</span> <span class="pp">|</span> Independent rebuild of the burden, the adjusted models and the models with all the lags, compared with R <span class="pp">|</span></span>
+<span id="cb2-90"><a href="#cb2-90" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-91"><a href="#cb2-91" aria-hidden="true" tabindex="-1"></a>:::</span>
+<span id="cb2-92"><a href="#cb2-92" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-93"><a href="#cb2-93" aria-hidden="true" tabindex="-1"></a>Every page shows its code folded next to each result, and each section names</span>
+<span id="cb2-94"><a href="#cb2-94" aria-hidden="true" tabindex="-1"></a>the scripts and the files behind its tables and figures. Each table has a button</span>
+<span id="cb2-95"><a href="#cb2-95" aria-hidden="true" tabindex="-1"></a>that saves it as an Excel file, and each figure a button that saves it as a</span>
+<span id="cb2-96"><a href="#cb2-96" aria-hidden="true" tabindex="-1"></a>PNG at 600 dpi. The R scripts are in</span>
+<span id="cb2-97"><a href="#cb2-97" aria-hidden="true" tabindex="-1"></a><span class="co">[</span><span class="ot">`Code/`</span><span class="co">](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code)</span></span>
+<span id="cb2-98"><a href="#cb2-98" aria-hidden="true" tabindex="-1"></a>of the repository.</span>
+<span id="cb2-99"><a href="#cb2-99" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-100"><a href="#cb2-100" aria-hidden="true" tabindex="-1"></a><span class="fu">## Data in one paragraph</span></span>
+<span id="cb2-101"><a href="#cb2-101" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-102"><a href="#cb2-102" aria-hidden="true" tabindex="-1"></a>Temperature comes from CR2MET v2.5 (daily maximum and minimum by municipality).</span>
+<span id="cb2-103"><a href="#cb2-103" aria-hidden="true" tabindex="-1"></a>Ozone, PM2.5 and nitrogen dioxide come from the SINCA monitoring network,</span>
+<span id="cb2-104"><a href="#cb2-104" aria-hidden="true" tabindex="-1"></a>interpolated to one point per municipality by inverse distance weighting and</span>
+<span id="cb2-105"><a href="#cb2-105" aria-hidden="true" tabindex="-1"></a>ordinary kriging. Deaths come from the open records of the Department of Health</span>
+<span id="cb2-106"><a href="#cb2-106" aria-hidden="true" tabindex="-1"></a>Statistics and Information (DEIS). The exposure dataset has</span>
+<span id="cb2-107"><a href="#cb2-107" aria-hidden="true" tabindex="-1"></a><span class="in">`r fmt(alignment$rows[1])`</span> municipality-days; the mortality dataset has</span>
+<span id="cb2-108"><a href="#cb2-108" aria-hidden="true" tabindex="-1"></a><span class="in">`r fmt(flow[step == &quot;Non-accidental cause (A00-R99)&quot;, deaths])`</span> non-accidental</span>
+<span id="cb2-109"><a href="#cb2-109" aria-hidden="true" tabindex="-1"></a>deaths.</span>
+<span id="cb2-110"><a href="#cb2-110" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-111"><a href="#cb2-111" aria-hidden="true" tabindex="-1"></a><span class="fu">## Findings of the data checks</span></span>
+<span id="cb2-112"><a href="#cb2-112" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-113"><a href="#cb2-113" aria-hidden="true" tabindex="-1"></a>These are the points a reader of the results should know before anything else.</span>
+<span id="cb2-114"><a href="#cb2-114" aria-hidden="true" tabindex="-1"></a>Each is documented in the deliverable named.</span>
+<span id="cb2-115"><a href="#cb2-115" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-116"><a href="#cb2-116" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**The reference heatwave script counts consecutive days across</span>
+<span id="cb2-117"><a href="#cb2-117" aria-hidden="true" tabindex="-1"></a>   municipalities.** In <span class="in">`HeatWave_PretermBirth_Chile`</span>, the lag that defines</span>
+<span id="cb2-118"><a href="#cb2-118" aria-hidden="true" tabindex="-1"></a>   &quot;consecutive days&quot; runs over rows of a table with all municipalities</span>
+<span id="cb2-119"><a href="#cb2-119" aria-hidden="true" tabindex="-1"></a>   stacked. This project counts them within each municipality.</span>
+<span id="cb2-120"><a href="#cb2-120" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-quality-control)</span>)</span>
+<span id="cb2-121"><a href="#cb2-121" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**CR2MET has no 29 February.** The three leap days of the study period are</span>
+<span id="cb2-122"><a href="#cb2-122" aria-hidden="true" tabindex="-1"></a>   filled by interpolation and flagged. (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-quality-control)</span>)</span>
+<span id="cb2-123"><a href="#cb2-123" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**The delivered ozone series understates the days with most ozone.** Its</span>
+<span id="cb2-124"><a href="#cb2-124" aria-hidden="true" tabindex="-1"></a>   station inputs were trimmed at the 99th percentile of the hourly values,</span>
+<span id="cb2-125"><a href="#cb2-125" aria-hidden="true" tabindex="-1"></a>   which removes the afternoon peaks of the hottest days.</span>
+<span id="cb2-126"><a href="#cb2-126" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-ozone-validation)</span>)</span>
+<span id="cb2-127"><a href="#cb2-127" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**Part of the delivered ozone series rests on imputed station values.**</span>
+<span id="cb2-128"><a href="#cb2-128" aria-hidden="true" tabindex="-1"></a>   Station-days without a validated measurement were filled by imputation; the</span>
+<span id="cb2-129"><a href="#cb2-129" aria-hidden="true" tabindex="-1"></a>   Independencia monitor, which failed in 2016, has no validated record for</span>
+<span id="cb2-130"><a href="#cb2-130" aria-hidden="true" tabindex="-1"></a>   most of that year. (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-ozone-validation)</span>)</span>
+<span id="cb2-131"><a href="#cb2-131" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>**The plan names the daily maximum 8-hour mean (MDA8); the delivered series</span>
+<span id="cb2-132"><a href="#cb2-132" aria-hidden="true" tabindex="-1"></a>   is a 24-hour mean.** The exposure dataset now holds three ozone series:</span>
+<span id="cb2-133"><a href="#cb2-133" aria-hidden="true" tabindex="-1"></a>   delivered, 24-hour mean rebuilt from validated records, and MDA8.</span>
+<span id="cb2-134"><a href="#cb2-134" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-ozone-validation)</span>)</span>
+<span id="cb2-135"><a href="#cb2-135" aria-hidden="true" tabindex="-1"></a><span class="ss">6. </span>**A fixed threshold of 30 °C is not comparable across municipalities**,</span>
+<span id="cb2-136"><a href="#cb2-136" aria-hidden="true" tabindex="-1"></a>   because the CR2MET value of a municipality describes its whole territory,</span>
+<span id="cb2-137"><a href="#cb2-137" aria-hidden="true" tabindex="-1"></a>   mountains included. (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-quality-control)</span>)</span>
+<span id="cb2-138"><a href="#cb2-138" aria-hidden="true" tabindex="-1"></a><span class="ss">7. </span>**The temperature of a municipality is not always that of the place where</span>
+<span id="cb2-139"><a href="#cb2-139" aria-hidden="true" tabindex="-1"></a>   people live.** <span class="in">`r heatwave_days$municipality[1]`</span> has the most heatwave days</span>
+<span id="cb2-140"><a href="#cb2-140" aria-hidden="true" tabindex="-1"></a>   of the 33 (<span class="in">`r heatwave_days$days[1]`</span> with the working definition, against</span>
+<span id="cb2-141"><a href="#cb2-141" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r min(heatwave_days$days)`</span> to <span class="in">`r heatwave_days$days[2]`</span> in the others): the</span>
+<span id="cb2-142"><a href="#cb2-142" aria-hidden="true" tabindex="-1"></a>   CR2MET series describes the whole territory of the municipality, and its</span>
+<span id="cb2-143"><a href="#cb2-143" aria-hidden="true" tabindex="-1"></a>   hot days come in longer spells.</span>
+<span id="cb2-144"><a href="#cb2-144" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 1</span><span class="co">](deliverable_1_exposure.html#sec-heatwave-municipalities)</span>)</span>
+<span id="cb2-145"><a href="#cb2-145" aria-hidden="true" tabindex="-1"></a><span class="ss">8. </span>**COVID-19 deaths fall outside non-accidental mortality as defined in the</span>
+<span id="cb2-146"><a href="#cb2-146" aria-hidden="true" tabindex="-1"></a>   plan** (A00-R99). (<span class="co">[</span><span class="ot">Deliverable 2</span><span class="co">](deliverable_2_mortality.html#sec-deaths)</span>)</span>
+<span id="cb2-147"><a href="#cb2-147" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-148"><a href="#cb2-148" aria-hidden="true" tabindex="-1"></a><span class="fu">## Preliminary results</span></span>
+<span id="cb2-149"><a href="#cb2-149" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-150"><a href="#cb2-150" aria-hidden="true" tabindex="-1"></a>With the working definitions, which the principal investigator has not</span>
+<span id="cb2-151"><a href="#cb2-151" aria-hidden="true" tabindex="-1"></a>confirmed (heatwave <span class="in">`r get_param(&quot;models&quot;, &quot;heatwave_main&quot;)`</span>, ozone above the</span>
+<span id="cb2-152"><a href="#cb2-152" aria-hidden="true" tabindex="-1"></a><span class="in">`r get_param(&quot;models&quot;, &quot;ozone_cutoff_main&quot;)`</span>th percentile of the municipality</span>
+<span id="cb2-153"><a href="#cb2-153" aria-hidden="true" tabindex="-1"></a>in the delivered series, lag <span class="in">`r lag_main`</span>). They are not findings to cite.</span>
+<span id="cb2-154"><a href="#cb2-154" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-155"><a href="#cb2-155" aria-hidden="true" tabindex="-1"></a><span class="ss">1. </span>**Odds of non-accidental death against days with neither exposure:**</span>
+<span id="cb2-156"><a href="#cb2-156" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r or_main(&quot;e10&quot;)`</span> on heatwave-only days, <span class="in">`r or_main(&quot;e01&quot;)`</span> on</span>
+<span id="cb2-157"><a href="#cb2-157" aria-hidden="true" tabindex="-1"></a>   high-ozone-only days and <span class="in">`r or_main(&quot;e11&quot;)`</span> on days with both.</span>
+<span id="cb2-158"><a href="#cb2-158" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 3</span><span class="co">](deliverable_3_models.html#sec-models)</span>)</span>
+<span id="cb2-159"><a href="#cb2-159" aria-hidden="true" tabindex="-1"></a><span class="ss">2. </span>**No additive interaction:** REOI <span class="in">`r reoi_main`</span>. Across causes, age groups,</span>
+<span id="cb2-160"><a href="#cb2-160" aria-hidden="true" tabindex="-1"></a>   sex and lags, <span class="in">`r reoi_excluding_zero`</span> of the <span class="in">`r nrow(reoi_all)`</span> intervals</span>
+<span id="cb2-161"><a href="#cb2-161" aria-hidden="true" tabindex="-1"></a>   exclude zero, in both directions, about what chance alone gives.</span>
+<span id="cb2-162"><a href="#cb2-162" aria-hidden="true" tabindex="-1"></a>   Adjustment and the choice of ozone series do not change it.</span>
+<span id="cb2-163"><a href="#cb2-163" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverables 3</span><span class="co">](deliverable_3_models.html#sec-interaction)</span> and</span>
+<span id="cb2-164"><a href="#cb2-164" aria-hidden="true" tabindex="-1"></a>   <span class="co">[</span><span class="ot">4</span><span class="co">](deliverable_4_sensitivity.html#sec-sensitivity)</span>)</span>
+<span id="cb2-165"><a href="#cb2-165" aria-hidden="true" tabindex="-1"></a><span class="ss">3. </span>**The associations are on the day of exposure and the day after.** With</span>
+<span id="cb2-166"><a href="#cb2-166" aria-hidden="true" tabindex="-1"></a>   the four lags in one model the odds ratios at lags 2 and 3 lie between</span>
+<span id="cb2-167"><a href="#cb2-167" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r fmt(min(later$or), 2)`</span> and <span class="in">`r fmt(max(later$or), 2)`</span>.</span>
+<span id="cb2-168"><a href="#cb2-168" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 4</span><span class="co">](deliverable_4_sensitivity.html#sec-lag-structure)</span>)</span>
+<span id="cb2-169"><a href="#cb2-169" aria-hidden="true" tabindex="-1"></a><span class="ss">4. </span>**Over the four days after exposure the picture is less clear.** With the</span>
+<span id="cb2-170"><a href="#cb2-170" aria-hidden="true" tabindex="-1"></a>   four lags in one model the cumulative REOI is positive in</span>
+<span id="cb2-171"><a href="#cb2-171" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r lags_grid[estimate_reoi &gt; 0, .N]`</span> of the <span class="in">`r nrow(lags_grid)`</span> combinations</span>
+<span id="cb2-172"><a href="#cb2-172" aria-hidden="true" tabindex="-1"></a>   of heatwave definition and ozone cut-off, and its interval excludes zero in</span>
+<span id="cb2-173"><a href="#cb2-173" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r lags_grid[low_reoi &gt; 0, .N]`</span>, mostly with the 30 °C and EHF definitions.</span>
+<span id="cb2-174"><a href="#cb2-174" aria-hidden="true" tabindex="-1"></a>   With the working definition it has the same sign and an interval that</span>
+<span id="cb2-175"><a href="#cb2-175" aria-hidden="true" tabindex="-1"></a>   includes zero. Exploratory. (<span class="co">[</span><span class="ot">Deliverable 4</span><span class="co">](deliverable_4_sensitivity.html#sec-lag-structure)</span>)</span>
+<span id="cb2-176"><a href="#cb2-176" aria-hidden="true" tabindex="-1"></a><span class="ss">5. </span>**The association with high ozone alone does not survive adjustment:**</span>
+<span id="cb2-177"><a href="#cb2-177" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r ozone_adjusted`</span> with PM2.5, nitrogen dioxide and humidity in the model,</span>
+<span id="cb2-178"><a href="#cb2-178" aria-hidden="true" tabindex="-1"></a>   and most of the association of ozone is shared with temperature.</span>
+<span id="cb2-179"><a href="#cb2-179" aria-hidden="true" tabindex="-1"></a>   (<span class="co">[</span><span class="ot">Deliverable 4</span><span class="co">](deliverable_4_sensitivity.html#sec-sensitivity)</span>)</span>
+<span id="cb2-180"><a href="#cb2-180" aria-hidden="true" tabindex="-1"></a><span class="ss">6. </span>**Attributable burden:** <span class="in">`r ci(burden$excess, burden$excess_low, burden$excess_high, 0)`</span></span>
+<span id="cb2-181"><a href="#cb2-181" aria-hidden="true" tabindex="-1"></a>   excess deaths in the warm seasons of 2009 to 2020,</span>
+<span id="cb2-182"><a href="#cb2-182" aria-hidden="true" tabindex="-1"></a>   <span class="in">`r fmt(burden$excess_pct_of_deaths, 1)`</span>% of the non-accidental deaths, with</span>
+<span id="cb2-183"><a href="#cb2-183" aria-hidden="true" tabindex="-1"></a>   unadjusted odds ratios. (<span class="co">[</span><span class="ot">Deliverable 3</span><span class="co">](deliverable_3_models.html#sec-burden)</span>)</span>
+<span id="cb2-184"><a href="#cb2-184" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-185"><a href="#cb2-185" aria-hidden="true" tabindex="-1"></a><span class="fu">## Decisions pending</span></span>
+<span id="cb2-186"><a href="#cb2-186" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-187"><a href="#cb2-187" aria-hidden="true" tabindex="-1"></a>The pipeline runs on working values marked <span class="in">`TO CONFIRM`</span> in</span>
+<span id="cb2-188"><a href="#cb2-188" aria-hidden="true" tabindex="-1"></a><span class="in">`config/config.yml`</span>. Changing one of them and running <span class="in">`Code/run_all.R`</span> rebuilds</span>
+<span id="cb2-189"><a href="#cb2-189" aria-hidden="true" tabindex="-1"></a>everything.</span>
+<span id="cb2-190"><a href="#cb2-190" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-191"><a href="#cb2-191" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Decision <span class="pp">|</span> Working value <span class="pp">|</span> Alternatives <span class="pp">|</span></span>
+<span id="cb2-192"><a href="#cb2-192" aria-hidden="true" tabindex="-1"></a><span class="pp">|---|---|---|</span></span>
+<span id="cb2-193"><a href="#cb2-193" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Season of the temperature percentiles <span class="pp">|</span> All days of the year <span class="pp">|</span> Warm season only <span class="pp">|</span></span>
+<span id="cb2-194"><a href="#cb2-194" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> 29 February <span class="pp">|</span> Interpolated <span class="pp">|</span> Left missing <span class="pp">|</span></span>
+<span id="cb2-195"><a href="#cb2-195" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Temperature of the municipalities that reach into the Andes <span class="pp">|</span> The CR2MET series of the whole territory, as delivered <span class="pp">|</span> Temperature of the populated area from the CR2MET grid; models without the municipality as a sensitivity analysis <span class="pp">|</span></span>
+<span id="cb2-196"><a href="#cb2-196" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Ozone series of the main analysis <span class="pp">|</span> Delivered 24-hour mean (<span class="in">`o3`</span>) <span class="pp">|</span> Rebuilt 24-hour mean (<span class="in">`o3obs`</span>), MDA8 (<span class="in">`o3mda8`</span>) <span class="pp">|</span></span>
+<span id="cb2-197"><a href="#cb2-197" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Status of the hourly records <span class="pp">|</span> Validated only <span class="pp">|</span> Also preliminary and not validated <span class="pp">|</span></span>
+<span id="cb2-198"><a href="#cb2-198" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Interpolation method of the main analysis <span class="pp">|</span> IDW <span class="pp">|</span> Ordinary kriging <span class="pp">|</span></span>
+<span id="cb2-199"><a href="#cb2-199" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Scope of the ozone percentiles <span class="pp">|</span> Within each municipality <span class="pp">|</span> Pooled <span class="pp">|</span></span>
+<span id="cb2-200"><a href="#cb2-200" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Kriging values below zero <span class="pp">|</span> Set to missing <span class="pp">|</span> Truncated at zero <span class="pp">|</span></span>
+<span id="cb2-201"><a href="#cb2-201" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Headline definitions of the models <span class="pp">|</span> Heatwave <span class="in">`hw_p95_2d`</span>, ozone above the 75th percentile <span class="pp">|</span> Any cell of the grid <span class="pp">|</span></span>
+<span id="cb2-202"><a href="#cb2-202" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Primary lag <span class="pp">|</span> Lag 0 <span class="pp">|</span> Lag 1, or lags 0 to 3 together <span class="pp">|</span></span>
+<span id="cb2-203"><a href="#cb2-203" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Reference category <span class="pp">|</span> Every non-heatwave day at or below the ozone cut-off <span class="pp">|</span> Ozone at or below the 50th percentile, as worded in the plan <span class="pp">|</span></span>
+<span id="cb2-204"><a href="#cb2-204" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Temperature in the continuous models <span class="pp">|</span> Percentile within the municipality, warm season <span class="pp">|</span> Degrees Celsius <span class="pp">|</span></span>
+<span id="cb2-205"><a href="#cb2-205" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Age groups of the rates per 100,000 <span class="pp">|</span> 0-64 and 65 or more (INE gives one group for 80 or more) <span class="pp">|</span> Another population source for 65-84 and 85 or more <span class="pp">|</span></span>
+<span id="cb2-206"><a href="#cb2-206" aria-hidden="true" tabindex="-1"></a><span class="pp">|</span> Months of the pandemic <span class="pp">|</span> Kept, COVID-19 deaths outside the outcome <span class="pp">|</span> Excluded <span class="pp">|</span></span>
+<span id="cb2-207"><a href="#cb2-207" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-208"><a href="#cb2-208" aria-hidden="true" tabindex="-1"></a><span class="fu">## Reproducing the work</span></span>
+<span id="cb2-209"><a href="#cb2-209" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-210"><a href="#cb2-210" aria-hidden="true" tabindex="-1"></a>Two commands, from the project folder, run everything:</span>
+<span id="cb2-211"><a href="#cb2-211" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-212"><a href="#cb2-212" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb2-213"><a href="#cb2-213" aria-hidden="true" tabindex="-1"></a><span class="in">Rscript Code/run_all.R</span></span>
+<span id="cb2-214"><a href="#cb2-214" aria-hidden="true" tabindex="-1"></a><span class="in">python3 Code/run_python.py</span></span>
+<span id="cb2-215"><a href="#cb2-215" aria-hidden="true" tabindex="-1"></a><span class="in">```</span></span>
+<span id="cb2-216"><a href="#cb2-216" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-217"><a href="#cb2-217" aria-hidden="true" tabindex="-1"></a>The first is the R pipeline, which in RStudio is started with the Source button</span>
+<span id="cb2-218"><a href="#cb2-218" aria-hidden="true" tabindex="-1"></a>on <span class="in">`Code/run_all.R`</span>. It installs the R packages that are missing, checks the</span>
+<span id="cb2-219"><a href="#cb2-219" aria-hidden="true" tabindex="-1"></a>inputs, runs the checks of the methods, the scripts in order and the R</span>
+<span id="cb2-220"><a href="#cb2-220" aria-hidden="true" tabindex="-1"></a>reports, and then compares every table with its copy from before the run. The</span>
+<span id="cb2-221"><a href="#cb2-221" aria-hidden="true" tabindex="-1"></a>second renders the reports written in Python, which compare their own results</span>
+<span id="cb2-222"><a href="#cb2-222" aria-hidden="true" tabindex="-1"></a>with those of R; it prepares its Python packages by itself and is not needed</span>
+<span id="cb2-223"><a href="#cb2-223" aria-hidden="true" tabindex="-1"></a>by the first. The whole project runs from its own folder: the scripts find it</span>
+<span id="cb2-224"><a href="#cb2-224" aria-hidden="true" tabindex="-1"></a>through the RStudio project file, and no path of a particular computer appears</span>
+<span id="cb2-225"><a href="#cb2-225" aria-hidden="true" tabindex="-1"></a>in the code. Three files make a run repeatable on another computer:</span>
+<span id="cb2-226"><a href="#cb2-226" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-227"><a href="#cb2-227" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`Data/input_manifest.csv`</span> gives the size and checksum of every input file.</span>
+<span id="cb2-228"><a href="#cb2-228" aria-hidden="true" tabindex="-1"></a>  Each script stops if an input is missing or is not the listed file. The</span>
+<span id="cb2-229"><a href="#cb2-229" aria-hidden="true" tabindex="-1"></a>  inputs and their sources are described in <span class="in">`Data/README.md`</span>; none of the data</span>
+<span id="cb2-230"><a href="#cb2-230" aria-hidden="true" tabindex="-1"></a>  are in the repository.</span>
+<span id="cb2-231"><a href="#cb2-231" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`Output/run_environment.txt`</span> and <span class="in">`Output/run_environment_python.txt`</span></span>
+<span id="cb2-232"><a href="#cb2-232" aria-hidden="true" tabindex="-1"></a>  describe the machine that last ran each of the two, which produced the</span>
+<span id="cb2-233"><a href="#cb2-233" aria-hidden="true" tabindex="-1"></a>  tables of the repository: system, R, Quarto, Python and package versions.</span>
+<span id="cb2-234"><a href="#cb2-234" aria-hidden="true" tabindex="-1"></a><span class="ss">- </span><span class="in">`renv.lock`</span> and <span class="in">`requirements.txt`</span> hold a complete set of package versions,</span>
+<span id="cb2-235"><a href="#cb2-235" aria-hidden="true" tabindex="-1"></a>  those of the first machine on which the project was run. The two files above</span>
+<span id="cb2-236"><a href="#cb2-236" aria-hidden="true" tabindex="-1"></a>  list where a machine differs from them.</span>
+<span id="cb2-237"><a href="#cb2-237" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-238"><a href="#cb2-238" aria-hidden="true" tabindex="-1"></a>The pipeline has been run from the inputs on two machines: Linux with R 4.3.3,</span>
+<span id="cb2-239"><a href="#cb2-239" aria-hidden="true" tabindex="-1"></a>and macOS on Apple silicon with R 4.5.2 and the current packages. The results</span>
+<span id="cb2-240"><a href="#cb2-240" aria-hidden="true" tabindex="-1"></a>of the main analysis agree between them within a relative difference of 2e-11.</span>
+<span id="cb2-241"><a href="#cb2-241" aria-hidden="true" tabindex="-1"></a>The results built on the ordinary kriging that the project computes itself</span>
+<span id="cb2-242"><a href="#cb2-242" aria-hidden="true" tabindex="-1"></a>(the rebuilt series <span class="in">`o3obs_ok`</span> and <span class="in">`o3mda8_ok`</span>, and the cross-validation) differ</span>
+<span id="cb2-243"><a href="#cb2-243" aria-hidden="true" tabindex="-1"></a>from the third decimal of their odds ratios: on about one day in a hundred the</span>
+<span id="cb2-244"><a href="#cb2-244" aria-hidden="true" tabindex="-1"></a>kriging system is close to singular and its solution changes with rounding in</span>
+<span id="cb2-245"><a href="#cb2-245" aria-hidden="true" tabindex="-1"></a>the last digit, which the two machines do not do in the same way. Inverse</span>
+<span id="cb2-246"><a href="#cb2-246" aria-hidden="true" tabindex="-1"></a>distance weighting, used for the main analysis, gives the same values on both.</span>
+<span id="cb2-247"><a href="#cb2-247" aria-hidden="true" tabindex="-1"></a>On each machine a second run gives the tables of the first. The section</span>
+<span id="cb2-248"><a href="#cb2-248" aria-hidden="true" tabindex="-1"></a>&quot;Reproducibility&quot; of the README of the repository has the details.</span>
 </code></pre></div><button title="Copy to Clipboard" class="code-copy-button" data-in-quarto-modal><i class="bi"></i></button></div>
 </div></div></div></div></div>
 </div> <!-- /content -->

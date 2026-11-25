@@ -22,7 +22,288 @@ definitions that the principal investigator has not confirmed.
 
 The tables and the figures of this page can be downloaded: each table has an
 **Excel** button above it, and each figure a **PNG, 600 dpi** button below it.
-Each part names the scripts and the files behind its tables and figures.
+Each part names the scripts and the files behind its tables and figures. The
+[Methodology](#sec-methodology), which opens the page, describes the data, the
+definitions and the methods.
+
+# Methodology {#sec-methodology}
+
+```{r}
+#| label: setup-methodology
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+options(knitr.kable.NA = "")
+# Every number quoted in the methodology is computed here, from the
+# configuration and the outputs of the scripts
+whole <- function(x) formatC(x, format = "f", digits = 0, big.mark = ",")
+method_table <- function(file, ...) fread(file.path(dir_tables, file), encoding = "UTF-8", ...)
+method <- list()
+method$lags <- unlist(get_param("design", "lags_days"))
+method$lag_main <- get_param("models", "lag_main")
+method$heatwave_main <- get_param("models", "heatwave_main")
+method$cutoff_main <- get_param("models", "ozone_cutoff_main")
+method$low_cutoff <- get_param("sensitivity", "low_ozone_cutoff")
+method$interpolation <- c(idw = "IDW", ok = "ordinary kriging")[[
+  get_param("air_pollution", "interpolation_method_main")]]
+method$increments <- get_param("sensitivity", "adjustment_increments")
+method$outcomes <- unlist(get_param("sensitivity", "outcomes"))
+method$temperature <- get_param("temperature_response")
+method$ozone_step <- get_param("distributed_lags", "ozone_increment_ppb")
+method$png_dpi <- get_param("figures", "png_dpi")
+method$width_mm <- get_param("figures", "width_double_mm")
+stopifnot(identical(names(method$increments), c("pm25", "no2", "hum")),
+          method$temperature$scale == "local_percentile", method$temperature$variable == "tmax")
+# Variants fitted, as written in the tables of the scripts
+method$adjustments <- unique(method_table("sensitivity_adjustment_or.csv", select = "adjustment")$adjustment)
+method$series <- unique(method_table("sensitivity_ozone_series.csv", select = "series")$series)
+method_lag_grid <- method_table("lags_grid.csv", select = c("outcome", "heatwave", "ozone", "adjustment", "lag"))
+method$grid_cells <- uniqueN(method_lag_grid[, .(heatwave, ozone)])
+method$grid_intervals <- nrow(method_lag_grid)
+# One estimate per combination, adjustment, outcome and lag, and one for the window
+stopifnot(method$grid_intervals == method$grid_cells * uniqueN(method_lag_grid$adjustment) *
+            length(method$outcomes) * (length(method$lags) + 1),
+          uniqueN(method_lag_grid$adjustment) == 2)
+# Level of the municipal series: mean of the daily maximum on the warm-season days of the study
+method_tmax <- fread(derived_path("exposure_2009_2020.csv"),
+                     select = c("com", "tmax", "in_study_period", "warm_season"))
+method$tmax_means <- method_tmax[in_study_period == TRUE & warm_season == TRUE,
+                                 .(mean = mean(tmax)), by = com][, range(mean)]
+stopifnot(!anyNA(method$tmax_means))
+rm(method_tmax)
+method$figures <- length(list.files(dir_figures, pattern = "^figure_.*\\.pdf$"))
+stopifnot(method$figures > 0)        # written by Code/50_figures_publication.R
+rm(method_lag_grid)
+```
+
+*Scripts of this deliverable: `Code/40_sensitivity_analyses.R`,
+`Code/41_distributed_lag_models.R` and `Code/50_figures_publication.R`.
+[Workflow and scripts](#sec-methods-workflow) lists what each one reads and
+writes, and every part of the page names the scripts and the files behind its
+tables and figures.*
+
+## Aim {#sec-methods-aim}
+
+The models of [deliverable 3](deliverable_3_models.html#sec-methodology) rest
+on choices: what the model is adjusted for, which category is the reference,
+which ozone series is used, and one lag at a time. This deliverable changes
+those choices and shows how far the odds ratios and the additive interaction
+move with each. It also draws the figures for publication from the saved
+results.
+
+## Starting point {#sec-methods-start}
+
+Every analysis starts from the compound model of deliverable 3, with the
+working definitions: heatwave `r method$heatwave_main`
+(`r heatwave_label(method$heatwave_main)`), ozone above the
+`r method$cutoff_main`th percentile of the municipality in the delivered
+series, non-accidental and cardiopulmonary mortality, lags
+`r min(method$lags)` to `r max(method$lags)`. The design, the conditional
+logistic regression and the interaction measures (REOI, AP and S; Hosmer and
+Lemeshow, 1992; Knol and VanderWeele, 2012) are those of
+[deliverable 3](deliverable_3_models.html#sec-methodology), built with the
+same functions (`Code/01_functions.R`). One element changes at a time.
+
+## Sensitivity analyses {#sec-methods-sensitivity}
+
+*Script: `Code/40_sensitivity_analyses.R`.*
+
+### Adjustment for other pollutants and humidity {#sec-methods-adjustment}
+
+The linear predictor of the compound model gains continuous covariates $z$,
+each at the same lag $k$ as the exposure:
+
+$$\eta_{m,t} = \beta_{10}\,E10_{m,t-k} + \beta_{01}\,E01_{m,t-k} + \beta_{11}\,E11_{m,t-k} + \sum_{j} \gamma_j \, z_{j,\,m,\,t-k}.$$
+
+- **Covariates.** PM2.5 (per `r method$increments$pm25` µg/m³), nitrogen
+  dioxide (per `r method$increments$no2` ppb) and relative humidity (per
+  `r method$increments$hum` percentage points): the municipal series
+  delivered with the ozone series, 24-hour means interpolated by
+  `r method$interpolation`
+  ([deliverable 1](deliverable_1_exposure.html#sec-methods-delivered)).
+- **Variants.** `r length(method$adjustments)` models: no adjustment, each
+  covariate alone, the three together, temperature, and the three with
+  temperature.
+- **Same deaths.** Every variant is fitted on the deaths whose referent days
+  have all the covariates, so that a change of the odds ratios is a change of
+  the model and not of the deaths.
+
+### Adjustment for temperature {#sec-methods-temperature}
+
+This analysis is not in the plan. The heatwave indicator is a threshold on
+temperature and ozone is higher on hot days, so part of the odds ratio of
+high-ozone days may be temperature below the threshold. Temperature enters as
+a smooth function $f$ of the daily maximum, at the same lag as the exposure:
+
+- **Scale.** The percentile of the day among the warm-season days of its
+  municipality in the study years (`local_percentile()`). A common curve in
+  °C would compare municipalities: the warm-season mean of the daily maximum
+  goes from `r sprintf("%.1f", method$tmax_means[1])` °C in one municipal
+  series to `r sprintf("%.1f", method$tmax_means[2])` °C in another
+  ([deliverable 1](deliverable_1_exposure.html#sec-heatwave-municipalities)).
+- **Shape.** Natural cubic spline with internal knots at the
+  `r paste0(method$temperature$spline_knots, "th", collapse = " and ")`
+  percentiles and boundary knots at
+  `r paste(method$temperature$spline_boundary, collapse = " and ")`.
+- **Reading.** Odds ratios of the
+  `r paste0(method$temperature$contrasts, "th", collapse = ", ")` percentiles
+  against the `r method$temperature$reference`th. With temperature in the
+  model, the heatwave indicator measures what a heatwave day adds beyond the
+  temperature of the day, a different question from that of the plan.
+
+The form of the temperature term is a proposal, marked `TO CONFIRM` in
+`config/config.yml`.
+
+### Reference category: three ozone levels {#sec-methods-reference}
+
+The plan words the reference as a day without heatwave and with low ozone, at
+or below the `r method$low_cutoff`th percentile, and the exposed category as
+ozone above the `r method$cutoff_main`th. The headline model splits the days
+at one cut-off, so its reference holds the days between the two percentiles.
+Here ozone has three levels (low, medium, high) and the model has the five
+categories that are not the reference:
+
+$$\eta = \beta_{0M}\,E_{0M} + \beta_{0H}\,E_{0H} + \beta_{1L}\,E_{1L} + \beta_{1M}\,E_{1M} + \beta_{1H}\,E_{1H},$$
+
+where each $E$ is the indicator of one category: the first index is 1 on a
+heatwave day and 0 otherwise, and the second is the ozone level ($L$ low,
+$M$ medium, $H$ high). The reference is $E_{0L}$, no heatwave and low ozone.
+The interaction measures are computed twice: for high against low ozone, from
+$E_{1L}$, $E_{0H}$ and $E_{1H}$, and for medium against low ozone, from
+$E_{1L}$, $E_{0M}$ and $E_{1M}$.
+
+### Ozone series {#sec-methods-ozone-series}
+
+The headline model is fitted with each of the `r length(method$series)` ozone
+series: the delivered series in its two versions, the 24-hour mean rebuilt
+from the validated hourly records and the daily maximum 8-hour mean, each by
+IDW and by ordinary kriging
+([deliverable 1](deliverable_1_exposure.html#sec-methods-pollution)). The
+cut-off is always the `r method$cutoff_main`th percentile of the municipality
+in that series.
+
+## Lag structure {#sec-methods-lags}
+
+*Script: `Code/41_distributed_lag_models.R`; functions
+`combine_coefficients()`, `local_percentile()` and `spline_basis()` of
+`Code/01_functions.R`.*
+
+The models of deliverable 3 take one lag at a time. Exposures of consecutive
+days are correlated (a heatwave lasts at least two days by definition), so
+the odds ratio of one lag also carries the effect of its neighbours. Here the
+exposures of the `r length(method$lags)` lags enter the same model, with one
+coefficient per lag and no constraint on their shape.
+
+**Compound exposure.** With the three exposed categories at every lag:
+
+$$\eta_{m,t} = \sum_{k=`r min(method$lags)`}^{`r max(method$lags)`} \left( \beta_{10,k}\,E10_{m,t-k} + \beta_{01,k}\,E01_{m,t-k} + \beta_{11,k}\,E11_{m,t-k} \right).$$
+
+- The odds ratio of category $c$ at lag $k$, $\exp(\beta_{c,k})$, is adjusted
+  for the other lags.
+- The cumulative odds ratio of a category is the product of its odds ratios
+  over the lags, $\exp\left(\sum_k \beta_{c,k}\right)$: the odds of death
+  after `r length(method$lags)` consecutive days in the category against
+  `r length(method$lags)` consecutive days with neither exposure. Its interval
+  comes from the covariance of the coefficients.
+- The additive interaction is computed at each lag from the three
+  coefficients of that lag, and over the window from the three cumulative
+  odds ratios.
+- The model is fitted for the working definitions and for the
+  `r method$grid_cells` combinations of heatwave definition and cut-off of the
+  delivered ozone series, twice: as above, and with the temperature of every
+  lag in the model. With `r length(method$outcomes)` outcomes, and one
+  estimate for each lag and one for the window, that gives
+  `r whole(method$grid_intervals)` interaction estimates, with no correction
+  for multiple comparisons.
+
+**Temperature.** A distributed lag non-linear model (Gasparrini and others,
+2010), with the package `dlnm`: the spline of the temperature percentile
+described above, crossed with one indicator per lag. The results are the odds
+ratios of the `r paste0(method$temperature$contrasts, "th", collapse = ", ")`
+percentiles against the `r method$temperature$reference`th, by lag and
+cumulative, and the cumulative curve along the temperature scale.
+
+**Ozone.** A linear term per `r method$ozone_step` ppb at every lag, alone
+and together with the temperature term.
+
+## Publication figures {#sec-methods-figures}
+
+*Script: `Code/50_figures_publication.R`; style and `write_figure()` in
+`Code/02_plot_style.R`.*
+
+The `r method$figures` figures are drawn from the tables written by the
+scripts, not from new calculations: a figure cannot differ from the tables of
+the pages. Each is written as a PDF, in vector form, and as a PNG at
+`r method$png_dpi` dpi, `r method$width_mm` mm wide, the width of two columns
+in most journals. `Output/Figures/figures_session_info.txt` records the
+software that drew them.
+
+## Checks {#sec-methods-checks}
+
+| Check | What it shows |
+|:----------------|:----------------|
+| Simulated deaths with a known lag structure | The model with all the lags recovers it; a model of lag 2 alone picks up the earlier lags |
+| Cumulative odds ratio | Its interval covers the true value of the simulation |
+| `local_percentile()` | It is the share of the reference values of the same municipality at or below the value |
+| Cross-basis of `dlnm` against a spline built by hand | The same cumulative odds ratios |
+
+: Checks of the methods of this deliverable (`tests/test_methods.R`, run at the start of every run of `Code/run_all.R`). {#tbl-checks}
+
+In the scripts: the three ozone levels are checked to be nested (a day above
+the high cut-off is above the low one), fits with a warning from the optimiser
+are counted, and a category without deaths is marked as not estimable.
+
+## Workflow and scripts {#sec-methods-workflow}
+
+`Code/run_all.R` runs the scripts in order, each in a new R session, and then
+renders the pages. The scripts are not run when a page is rendered.
+
+::: {.wide-table}
+
+| Script | Reads | Writes | Parts of this page |
+|:-------|:------|:--------------|:------|
+| `Code/40_sensitivity_analyses.R` | `Data/Derived/case_crossover.csv`, `exposure_lagged.csv`, `exposure_2009_2020.csv`, `exposure_air_pollution_all.csv`; `Output/Tables/models_grid.csv` | `Output/Tables/sensitivity_adjustment_or.csv`, `sensitivity_adjustment_interaction.csv`, `sensitivity_reference_or.csv`, `sensitivity_reference_interaction.csv`, `sensitivity_ozone_series.csv` | Sensitivity analyses |
+| `Code/41_distributed_lag_models.R` | `case_crossover.csv`, `exposure_lagged.csv`, `exposure_2009_2020.csv` | `Output/Tables/lags_compound_or.csv`, `lags_compound_interaction.csv`, `lags_grid.csv`, `lags_temperature_or.csv`, `lags_temperature_curve.csv`, `lags_ozone_or.csv` | Lag structure |
+| `Code/50_figures_publication.R` | The tables of `Output/Tables`; the municipal polygons | The files `figure_*` of `Output/Figures`, as PDF and PNG; `figures_session_info.txt` | Publication figures |
+| `tests/test_methods.R` | Nothing: small examples built in the script | The list of checks | Method checks |
+
+: Scripts of this deliverable, with what each one reads and writes. {#tbl-workflow}
+
+:::
+
+Shared code: `Code/00_setup.R`, `Code/01_functions.R` and
+`Code/02_plot_style.R`. All the parameters are in `config/config.yml`. The
+code of every script is in [R scripts](#sec-scripts).
+
+## Limits {#sec-methods-limits}
+
+- **Exploratory.** The grid over the definitions and the lags gives hundreds
+  of intervals on definitions that share most of their days. A positive
+  interaction in some of them is not a finding unless the definition and the
+  lag window were fixed before looking.
+- **Temperature.** Its form in the models is a proposal, and adjusting for it
+  changes the question that the heatwave indicator answers.
+- **Covariates with error.** PM2.5, nitrogen dioxide and humidity are
+  interpolated municipal series, with the same limits as the ozone series
+  ([deliverable 1](deliverable_1_exposure.html#sec-ozone-validation)).
+  Adjustment for a covariate measured with error is incomplete.
+- **Correlated lags.** With all the lags in one model the lag-specific odds
+  ratios are less precise than in the single-lag models; the cumulative odds
+  ratio is the stable summary.
+- **Working definitions.** As in deliverable 3.
+
+## References {#sec-methods-references}
+
+- Gasparrini, A., Armstrong, B., and Kenward, M. G. (2010). Distributed lag
+  non-linear models. *Statistics in Medicine*, 29(21), 2224-2234.
+  <https://doi.org/10.1002/sim.3940>.
+- Hosmer, D. W., and Lemeshow, S. (1992). Confidence interval estimation of
+  interaction. *Epidemiology*, 3(5), 452-456.
+- Knol, M. J., and VanderWeele, T. J. (2012). Recommendations for presenting
+  analyses of effect modification and interaction. *International Journal of
+  Epidemiology*, 41(2), 514-520.
 
 # Sensitivity analyses {#sec-sensitivity}
 
