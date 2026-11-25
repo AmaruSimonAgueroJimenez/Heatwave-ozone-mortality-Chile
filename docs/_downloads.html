@@ -1,0 +1,337 @@
+<!--
+  Download buttons, added to every page of the project (include-after-body in
+  _quarto.yml).
+
+  Every table gets a button that saves it as an Excel file (.xlsx), and every
+  figure a button that saves its picture as it is stored in the page: a PNG at
+  600 dpi (the resolution is read from the picture and shown on the button).
+  A table inside a block of class "no-download" gets no button; the tables
+  that only lead to other sections are written that way.
+
+  The Excel file is written in the browser from the table as it is shown on the
+  page, so its numbers have the decimals of the page; the tables with every
+  decimal are the .csv files of Output/Tables. Cells that hold only a number
+  are saved as numbers, the others as text. Nothing is sent over the network
+  and no other program or library is needed.
+-->
+<style>
+  .dl-bar { display: flex; justify-content: flex-end; margin: 0.15rem 0 0.4rem; }
+  .dl-button { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.1rem 0.6rem;
+               font-size: 0.78rem; line-height: 1.5; color: #0d366b; background: #ffffff;
+               border: 1px solid #b8c7da; border-radius: 0.9rem; cursor: pointer; }
+  .dl-button:hover, .dl-button:focus-visible { color: #ffffff; background: #0d366b; border-color: #0d366b; }
+  .dl-button svg { width: 0.95em; height: 0.95em; }
+  @media print { .dl-bar { display: none; } }
+</style>
+<script>
+(function () {
+  "use strict";
+
+  var ICON = '<svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">' +
+    '<path d="M8 1.5v8M4.6 6.4 8 9.8l3.4-3.4M2.2 11.6v2.2h11.6v-2.2" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  // ---- Names ----------------------------------------------------------------
+
+  function pageName() {
+    var file = decodeURIComponent(window.location.pathname.split("/").pop() || "");
+    return file.replace(/\.html?$/i, "") || "page";
+  }
+  // The identifier of the figure or table (fig-..., tbl-...), or its position on the page
+  function elementName(element, prefix, position) {
+    var float = element.closest('[id^="' + prefix + '-"]');
+    return float ? float.id : (prefix === "fig" ? "figure-" : "table-") + (position < 10 ? "0" : "") + position;
+  }
+
+  // ---- Saving a file ----------------------------------------------------------
+
+  function save(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+  function button(label, description, action) {
+    var bar = document.createElement("div");
+    bar.className = "dl-bar";
+    var control = document.createElement("button");
+    control.type = "button";
+    control.className = "dl-button";
+    control.title = description;
+    control.setAttribute("aria-label", description);
+    control.innerHTML = ICON + "<span></span>";
+    control.lastChild.textContent = label;
+    control.addEventListener("click", action);
+    bar.appendChild(control);
+    return bar;
+  }
+
+  // ---- Figures ----------------------------------------------------------------
+
+  function base64Bytes(text) {
+    var binary = atob(text);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+  }
+  // The pictures are stored inside the page as data URIs
+  function pictureParts(source) {
+    var match = /^data:([^;,]+)(;base64)?,/.exec(source);
+    return match ? { type: match[1], base64: Boolean(match[2]), body: source.slice(match[0].length) } : null;
+  }
+  // Resolution written in a PNG file (its pHYs chunk, in pixels per metre), or null
+  function pngDpi(parts) {
+    if (!parts || parts.type !== "image/png" || !parts.base64) return null;
+    var head = base64Bytes(parts.body.slice(0, 2048).replace(/[^A-Za-z0-9+/]/g, "").slice(0, 2044));
+    for (var i = 8; i + 21 <= head.length; ) {
+      var length = ((head[i] << 24) | (head[i + 1] << 16) | (head[i + 2] << 8) | head[i + 3]) >>> 0;
+      var type = String.fromCharCode(head[i + 4], head[i + 5], head[i + 6], head[i + 7]);
+      if (type === "pHYs" && head[i + 16] === 1) {
+        var perMetre = ((head[i + 8] << 24) | (head[i + 9] << 16) | (head[i + 10] << 8) | head[i + 11]) >>> 0;
+        return Math.round(perMetre * 0.0254);
+      }
+      if (type === "IDAT") return null;
+      i += 12 + length;
+    }
+    return null;
+  }
+  function addFigureButtons(page) {
+    var pictures = document.querySelectorAll("main img");
+    var position = 0;
+    Array.prototype.forEach.call(pictures, function (picture) {
+      if (picture.closest(".dl-bar, .no-download") || picture.closest("table")) return;
+      position += 1;
+      var source = picture.getAttribute("src") || "";
+      var parts = pictureParts(source);
+      var extension = parts ? (parts.type.split("/")[1] || "png").replace("jpeg", "jpg").replace("svg+xml", "svg") : "png";
+      var dpi = pngDpi(parts);
+      var label = extension.toUpperCase() + (dpi ? ", " + dpi + " dpi" : "");
+      var filename = page + "_" + elementName(picture, "fig", position) + "." + extension;
+      var bar = button(label, "Download this figure (" + label + ")", function () {
+        if (parts && parts.base64) {
+          save(new Blob([base64Bytes(parts.body)], { type: parts.type }), filename);
+        } else {                                   // a picture kept in a file next to the page
+          var link = document.createElement("a");
+          link.href = picture.currentSrc || picture.src;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      });
+      var holder = picture.parentNode;
+      if (holder.tagName === "P" || holder.tagName === "DIV" || holder.tagName === "A") {
+        holder.parentNode.insertBefore(bar, holder.nextSibling);
+      } else {
+        holder.insertBefore(bar, picture.nextSibling);
+      }
+    });
+  }
+
+  // ---- Tables -------------------------------------------------------------------
+
+  function cellText(cell) {
+    var copy = cell.cloneNode(true);
+    Array.prototype.forEach.call(copy.querySelectorAll("br"), function (b) { b.parentNode.replaceChild(document.createTextNode(" "), b); });
+    return copy.textContent.replace(/\s+/g, " ").trim();
+  }
+  // A cell that holds only a number, written as on the pages (1,234.5 or −0.12),
+  // becomes a number; anything else, and codes that start with a zero, stay as text
+  function asNumber(text) {
+    var plain = text.replace(/−/g, "-");
+    if (!/^-?(\d{1,3}(,\d{3})+|\d+)(\.\d+)?([eE][-+]?\d+)?$/.test(plain) && !/^-?\.\d+$/.test(plain)) return null;
+    if (/^-?0\d/.test(plain)) return null;
+    var value = Number(plain.replace(/,/g, ""));
+    return isFinite(value) ? value : null;
+  }
+  // Rows of the table as lists of cells {column, text, header, number}, and the merged ranges
+  function tableContent(table) {
+    var rows = [], merges = [], taken = [];
+    var ownRows = Array.prototype.filter.call(table.querySelectorAll("tr"), function (tr) { return tr.closest("table") === table; });
+    ownRows.forEach(function (tr, r) {
+      var cells = [], column = 0;
+      taken[r] = taken[r] || [];
+      Array.prototype.forEach.call(tr.children, function (cell) {
+        if (cell.tagName !== "TD" && cell.tagName !== "TH") return;
+        while (taken[r][column]) column += 1;
+        var across = Math.max(1, cell.colSpan || 1), down = Math.max(1, cell.rowSpan || 1);
+        for (var i = 0; i < down; i++) {
+          taken[r + i] = taken[r + i] || [];
+          for (var j = 0; j < across; j++) taken[r + i][column + j] = true;
+        }
+        var text = cellText(cell);
+        var header = cell.tagName === "TH" || Boolean(cell.closest("thead"));
+        cells.push({ column: column, text: text, header: header, number: header ? null : asNumber(text) });
+        if (across > 1 || down > 1) merges.push([r, column, r + down - 1, column + across - 1]);
+        column += across;
+      });
+      rows.push(cells);
+    });
+    return { rows: rows, merges: merges };
+  }
+  function tableCaption(table) {
+    var figure = table.closest("figure");
+    var caption = (figure && figure.querySelector("figcaption")) || table.querySelector("caption");
+    return caption ? caption.textContent.replace(/\s+/g, " ").trim() : "";
+  }
+
+  // ---- Excel file ---------------------------------------------------------------
+
+  function escapeXml(text) {
+    return String(text).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, "")
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function columnLetters(index) {
+    var letters = "";
+    for (var n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) letters = String.fromCharCode(65 + (n - 1) % 26) + letters;
+    return letters;
+  }
+  function sheetXml(content, caption) {
+    var widths = [], lines = [];
+    function cellXml(r, cell) {
+      var reference = columnLetters(cell.column) + (r + 1);
+      widths[cell.column] = Math.max(widths[cell.column] || 0, Math.min(cell.text.length, 60));
+      if (cell.number !== null) return '<c r="' + reference + '"><v>' + String(cell.number) + "</v></c>";
+      if (cell.text === "") return "";
+      return '<c r="' + reference + '" t="inlineStr"' + (cell.header ? ' s="1"' : "") + '><is><t xml:space="preserve">' +
+        escapeXml(cell.text) + "</t></is></c>";
+    }
+    content.rows.forEach(function (cells, r) {
+      lines.push('<row r="' + (r + 1) + '">' + cells.map(function (cell) { return cellXml(r, cell); }).join("") + "</row>");
+    });
+    if (caption) {                                  // below the table, after an empty row
+      var captionRow = content.rows.length + 2;
+      lines.push('<row r="' + captionRow + '"><c r="A' + captionRow + '" t="inlineStr"><is><t xml:space="preserve">' +
+        escapeXml(caption) + "</t></is></c></row>");
+    }
+    var columns = "";
+    for (var c = 0; c < widths.length; c++) {
+      columns += '<col min="' + (c + 1) + '" max="' + (c + 1) + '" width="' + (Math.max(widths[c] || 0, 6) + 2) + '" customWidth="1"/>';
+    }
+    var merged = content.merges.map(function (m) {
+      return '<mergeCell ref="' + columnLetters(m[1]) + (m[0] + 1) + ":" + columnLetters(m[3]) + (m[2] + 1) + '"/>';
+    }).join("");
+    return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      (columns ? "<cols>" + columns + "</cols>" : "") + "<sheetData>" + lines.join("") + "</sheetData>" +
+      (merged ? '<mergeCells count="' + content.merges.length + '">' + merged + "</mergeCells>" : "") + "</worksheet>";
+  }
+  var PACKAGE = [
+    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+      '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+      '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+      "</Types>"],
+    ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+      "</Relationships>"],
+    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="Table" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+    ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+      "</Relationships>"],
+    ["xl/styles.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+      '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+      '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+      '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>' +
+      '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>' +
+      '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+      "</styleSheet>"]
+  ];
+
+  // An .xlsx file is a zip archive of XML files; here they are stored without compression
+  var crcTable = null;
+  function crc32(bytes) {
+    if (!crcTable) {
+      crcTable = [];
+      for (var n = 0; n < 256; n++) {
+        var c = n;
+        for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+        crcTable[n] = c >>> 0;
+      }
+    }
+    var crc = 0xFFFFFFFF;
+    for (var i = 0; i < bytes.length; i++) crc = crcTable[(crc ^ bytes[i]) & 0xFF] ^ (crc >>> 8);
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zipStored(files) {
+    var encoder = new TextEncoder();
+    var parts = [], directory = [], offset = 0;
+    files.forEach(function (file) {
+      var name = encoder.encode(file[0]), data = encoder.encode(file[1]), crc = crc32(data);
+      var local = new DataView(new ArrayBuffer(30));
+      local.setUint32(0, 0x04034b50, true);            // local file header
+      local.setUint16(4, 20, true);                    // version needed
+      local.setUint16(12, 0x21, true);                 // date: 1 January 1980, so that the file does not depend on the clock
+      local.setUint32(14, crc, true);
+      local.setUint32(18, data.length, true);
+      local.setUint32(22, data.length, true);
+      local.setUint16(26, name.length, true);
+      parts.push(new Uint8Array(local.buffer), name, data);
+      var entry = new DataView(new ArrayBuffer(46));
+      entry.setUint32(0, 0x02014b50, true);            // central directory entry
+      entry.setUint16(4, 20, true);
+      entry.setUint16(6, 20, true);
+      entry.setUint16(14, 0x21, true);
+      entry.setUint32(16, crc, true);
+      entry.setUint32(20, data.length, true);
+      entry.setUint32(24, data.length, true);
+      entry.setUint16(28, name.length, true);
+      entry.setUint32(42, offset, true);
+      directory.push(new Uint8Array(entry.buffer), name);
+      offset += 30 + name.length + data.length;
+    });
+    var directorySize = directory.reduce(function (sum, part) { return sum + part.length; }, 0);
+    var end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);                // end of central directory
+    end.setUint16(8, files.length, true);
+    end.setUint16(10, files.length, true);
+    end.setUint32(12, directorySize, true);
+    end.setUint32(16, offset, true);
+    return parts.concat(directory, [new Uint8Array(end.buffer)]);
+  }
+  function excelFile(table) {
+    var files = PACKAGE.concat([["xl/worksheets/sheet1.xml", sheetXml(tableContent(table), tableCaption(table))]]);
+    return new Blob(zipStored(files), { type: XLSX_TYPE });
+  }
+  function addTableButtons(page) {
+    var tables = document.querySelectorAll("main table");
+    var position = 0;
+    Array.prototype.forEach.call(tables, function (table) {
+      if (table.closest("pre, .no-download") || table.parentNode.closest("table") || !table.querySelector("td")) return;
+      position += 1;
+      var filename = page + "_" + elementName(table, "tbl", position) + ".xlsx";
+      var bar = button("Excel", "Download this table as an Excel file", function () { save(excelFile(table), filename); });
+      // A long table sits in a box that scrolls: the button goes above the box
+      var holder = table.parentNode;
+      var scrolls = holder.tagName === "DIV" && /overflow/.test(holder.getAttribute("style") || "");
+      (scrolls ? holder.parentNode : holder).insertBefore(bar, scrolls ? holder : table);
+    });
+  }
+
+  function start() {
+    var page = pageName();
+    addFigureButtons(page);
+    addTableButtons(page);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start);
+  else start();
+})();
+</script>

@@ -1,14 +1,14 @@
 <nav class="site-nav" aria-label="Project pages">
   <a class="site-nav-home" href="index.html">Heatwaves, ozone and mortality in Santiago</a>
-  <span class="site-nav-group">R</span>
-  <a href="01_exposure_qc.html">1 Data checks</a>
-  <a href="02_exposure_trends.html">2 Maps and trends</a>
-  <a href="03_ozone_validation.html">3 Ozone validation</a>
-  <a href="04_mortality_case_crossover.html">4 Mortality</a>
-  <a href="05_models.html">5 Models</a>
-  <span class="site-nav-group">Python</span>
+  <span class="site-nav-group">Deliverables</span>
+  <a href="deliverable_1_exposure.html">1 Exposure: quality control, maps and trends</a>
+  <a href="deliverable_2_mortality.html">2 Mortality and case-crossover dataset</a>
+  <a href="deliverable_3_models.html">3 Models, interaction and burden</a>
+  <a href="deliverable_4_sensitivity.html">4 Sensitivity and publication figures</a>
+  <span class="site-nav-group">Replication in Python</span>
   <a href="py_01_exposure.html">Exposure</a>
   <a href="py_02_models.html">Models</a>
+  <a href="py_03_burden_sensitivity_lags.html">Burden, sensitivity, lags</a>
 </nav>
 <style>
   .site-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 1.1rem;
@@ -18,4 +18,9 @@
   .site-nav .site-nav-home { font-weight: 600; margin-right: 0.8rem; }
   .site-nav .site-nav-group { color: #9ec5f4; font-size: 0.75rem; letter-spacing: 0.06em;
                               text-transform: uppercase; margin-left: 0.6rem; }
+  /* Text tables with file names (class wide-table): the columns keep their
+     share of the width and the long names wrap inside them */
+  .wide-table { font-size: 0.9em; }
+  .wide-table table { table-layout: fixed; width: 100%; }
+  .wide-table td code, .wide-table td a { overflow-wrap: anywhere; }
 </style>

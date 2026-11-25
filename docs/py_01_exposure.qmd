@@ -25,6 +25,7 @@ Python counterpart, so the kriging columns exist only in the R dataset.
 
 ```{python}
 #| label: setup
+import hashlib
 from pathlib import Path
 
 import geopandas as gpd
@@ -64,6 +65,30 @@ def get_param(*keys):
     return value
 
 
+MANIFEST = pd.read_csv(ROOT / "Data" / "input_manifest.csv", dtype=str)
+VERIFIED = set()
+
+
+def verify_input(name, path):
+    """Stop unless the input is, byte for byte, the file listed in Data/input_manifest.csv."""
+    if name in VERIFIED:
+        return
+    expected = MANIFEST[MANIFEST["input"] == name]
+    if expected.empty:
+        raise KeyError(f"Input '{name}' is not listed in Data/input_manifest.csv")
+    for row in expected.itertuples():
+        file = path / row.file if path.is_dir() else path
+        if not file.exists():
+            raise FileNotFoundError(f"Input '{name}': file not found: {file}")
+        digest = hashlib.md5(usedforsecurity=False)
+        with open(file, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        if file.stat().st_size != int(row.bytes) or digest.hexdigest() != row.md5:
+            raise ValueError(f"Input '{name}' is not the file the results were produced from: {file}")
+    VERIFIED.add(name)
+
+
 def input_path(name):
     root = Path(get_param("paths", "input_root")).expanduser()
     if not root.is_absolute():
@@ -73,6 +98,7 @@ def input_path(name):
         path = root / path
     if not path.exists():
         raise FileNotFoundError(f"Input '{name}' not found: {path}")
+    verify_input(name, path)
     return path
 
 
@@ -97,8 +123,12 @@ plt.rcParams.update({
     "axes.labelcolor": INK["secondary"], "xtick.color": INK["secondary"],
     "ytick.color": INK["secondary"], "text.color": INK["primary"],
     "axes.titleweight": "bold", "axes.titlesize": 10, "axes.titlelocation": "left",
-    "font.size": 9, "figure.dpi": 150,
+    "font.size": 9,
 })
+# The figures are stored as PNG at 600 dpi, on every machine and whatever
+# picture format the report options ask for
+from matplotlib_inline.backend_inline import set_matplotlib_formats
+set_matplotlib_formats("png", dpi=600)
 ```
 
 ## Temperature and heatwave indicators

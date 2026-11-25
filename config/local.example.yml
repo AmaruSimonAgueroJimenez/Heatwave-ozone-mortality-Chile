@@ -16,4 +16,6 @@ inputs:
   interpolation_locations: pollution-interpolation-kriging-idw/Data/interpolation_locations.RData
   station_series: pollution-interpolation-kriging-idw/Data/imputed_series.RData
   sinca_hourly_dir: /path/to/sinca
+  cams_eac4_dir: /path/to/cams_eac4
   deis_deaths: DEIS/defunciones_RM_2009_2020_extracto.csv
+  population: /path/to/censo_proyecciones_ano_edad_genero.parquet

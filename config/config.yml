@@ -46,7 +46,7 @@ air_pollution:
   series_version_sensitivity: all
   interpolation_methods: [idw, ok]          # both are kept in the exposure dataset
   # Method used for the headline tables, maps and models. Working value. The
-  # leave-one-station-out validation (docs/03) gives ordinary kriging the
+  # leave-one-station-out validation (deliverable 1) gives ordinary kriging the
   # lower error, clearly for the 24-hour mean and slightly for the MDA8.
   #                                                                TO CONFIRM
   interpolation_method_main: idw
@@ -75,6 +75,11 @@ interpolation:                              # parameters of the data author's mo
   ok_min_stations: 3
   conf_level: 0.95
   crs_epsg: 32719                           # WGS 84 / UTM zone 19S
+  # A kriging variance cannot be negative. When the kriging system of a day is
+  # close to singular, a variance of zero comes out as a tiny number of either
+  # sign, depending on the machine. Variances between minus this value and
+  # zero (ppb squared) count as zero; one further below zero stops the script.
+  variance_rounding: 1.0e-06
 
 station_series:                             # rebuilt from the hourly SINCA records
   stations_file: config/stations.csv        # SINCA code and name of each ozone station
@@ -89,6 +94,7 @@ station_series:                             # rebuilt from the hourly SINCA reco
   mda8_min_windows_day: 18                  # of 24 windows
 
 reanalysis:                                 # CAMS EAC4, comparison only
+  file_pattern: "cams_eac4_%s_chile_pixeles.nc"   # one file per month, %s is yyyymm
   cell_size_degrees: 0.75
   # Warm-season months are on summer time in Chile (UTC-3) in every study year.
   utc_offset_hours: -3
@@ -120,7 +126,72 @@ models:
   # Definitions used for the headline models; the full grid is also fitted.
   heatwave_main: hw_p95_2d                  # TO CONFIRM
   ozone_cutoff_main: 75                     # TO CONFIRM
+  # Lag shown first in the figures and used for the mortality burden. The
+  # plan leaves the primary lag to be chosen from the results; in the
+  # preliminary models the odds ratios are largest on the day of exposure.
+  #                                                                TO CONFIRM
+  lag_main: 0
   conf_level: 0.95
+
+burden:
+  # Excess deaths attributable to heatwave only, high ozone only and both,
+  # by municipality, calendar year and age group (Code/31).
+  outcomes: [non_accidental, cardiopulmonary]
+
+population:
+  # The INE projections by municipality give single years of age up to 79 and
+  # one group for 80 years or more. Rates per 100,000 are therefore computed
+  # for 0-64 and 65 or more; the groups 65-84 and 85+ of the plan have no
+  # denominator at municipal level.                                TO CONFIRM
+  open_age: 80
+  rate_age_breaks: [0, 65]
+  rate_age_labels: ["0-64", "65+"]
+
+temperature_response:
+  # Continuous temperature, used to adjust the compound model (Code/40) and in
+  # the distributed-lag models (Code/41). The municipal series are area means
+  # whose level differs by more than 10 C between municipalities, so the daily
+  # maximum enters as its percentile among the warm-season days of the same
+  # municipality in the study years, through a natural cubic spline.
+  #                                                                TO CONFIRM
+  variable: tmax
+  scale: local_percentile
+  spline_knots: [50, 90]                    # internal knots, percentiles
+  spline_boundary: [0, 100]
+  reference: 50                             # percentile the odds ratios are relative to
+  contrasts: [90, 95, 99]
+
+sensitivity:
+  outcomes: [non_accidental, cardiopulmonary]
+  # Continuous covariates of the multi-pollutant models and the increment
+  # their odds ratio refers to: PM2.5 in ug/m3, nitrogen dioxide in ppb,
+  # relative humidity in percentage points. Each enters at the same lag as
+  # the exposure, from the series of interpolation_method_main.
+  adjustment_increments:
+    pm25: 10
+    no2: 10
+    hum: 10
+  # Not in the plan: the compound model is also adjusted for the temperature
+  # of the same day (temperature_response), to see how much of the ozone odds
+  # ratio is temperature below the heatwave threshold.             TO CONFIRM
+  adjust_for_temperature: true
+  # The plan words the reference category as "low ozone (<= 50th percentile)"
+  # and the high category as "> 75th percentile". The headline model splits
+  # the days at one cut-off; this analysis keeps three ozone levels, with the
+  # days at or below this percentile as reference.                 TO CONFIRM
+  low_ozone_cutoff: 50
+
+distributed_lags:
+  # All the lags of design$lags_days enter the same model, one coefficient per
+  # lag and term (unconstrained lag structure).
+  outcomes: [non_accidental, cardiopulmonary]
+  ozone_increment_ppb: 10
+
+figures:
+  # Figures written as files (Code/18, the exposure series; Code/50, the
+  # publication figures): PDF and PNG of the same drawing.
+  png_dpi: 600
+  width_double_mm: 180                      # two-column width of most journals
 
 inputs:                                     # relative to paths: input_root
   cr2met_tmax: CR2MET/CR2MET_tmax_v2.5_day_COM_TS_1980_2021.csv
@@ -133,3 +204,20 @@ inputs:                                     # relative to paths: input_root
   sinca_hourly_dir: SINCA_hourly
   cams_eac4_dir: CAMS_EAC4
   deis_deaths: DEIS/defunciones_RM_2009_2020_extracto.csv
+  population: INE/censo_proyecciones_ano_edad_genero.parquet
+  # The public file the deaths extract was cut from. Only Code/05 reads it.
+  deis_official: DEIS/DEFUNCIONES_FUENTE_DEIS_1990_2023_CIFRAS_OFICIALES.csv
+
+# Inputs that the analysis itself does not read: their absence stops nothing
+# but the script that needs them.
+optional_inputs: [deis_official]
+
+deis_extract:                               # how deis_deaths was cut from deis_official
+  region: "Metropolitana de Santiago"       # column NOMBRE_REGION, region of residence
+  years: [2009, 2020]                       # first column, year of death
+
+reproduction:
+  # Largest difference, relative to the value, between a table of this
+  # repository and the same table computed again that still counts as the
+  # same result. Other machines and package versions change the last digits.
+  tolerance: 1.0e-08

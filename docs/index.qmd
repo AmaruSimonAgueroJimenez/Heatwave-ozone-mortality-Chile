@@ -16,6 +16,35 @@ read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-
 fmt <- function(x, digits = 0) formatC(x, format = "f", digits = digits, big.mark = ",")
 flow <- read_table("mortality_flow.csv")
 alignment <- read_table("exposure_alignment.csv")
+
+# Preliminary results quoted below, each from the table of its page
+ci <- function(estimate, low, high, digits = 2) {
+  sprintf("%s (%s to %s)", fmt(estimate, digits), fmt(low, digits), fmt(high, digits))
+}
+lag_main <- get_param("models", "lag_main")
+main_or <- read_table("models_main_or.csv")[outcome == "non_accidental" & subgroup == "all" &
+                                              model == "compound" & lag == lag_main]
+or_main <- function(term_value) main_or[term == term_value, ci(or, or_low, or_high)]
+reoi_all <- read_table("models_main_interaction.csv")[measure == "REOI"]
+reoi_all[, `:=`(estimate = as.numeric(estimate), low = as.numeric(low), high = as.numeric(high))]
+reoi_main <- reoi_all[outcome == "non_accidental" & subgroup == "all" & lag == lag_main,
+                      ci(estimate, low, high, 3)]
+reoi_excluding_zero <- reoi_all[, sum(low > 0 | high < 0)]
+adjusted <- read_table("sensitivity_adjustment_or.csv")[
+  outcome == "non_accidental" & lag == lag_main & term == "e01"]
+all_three <- paste(names(get_param("sensitivity", "adjustment_increments")), collapse = " + ")
+ozone_adjusted <- adjusted[adjustment == all_three, ci(or, or_low, or_high)]
+lags_or <- read_table("lags_compound_or.csv")[outcome == "non_accidental"]
+later <- lags_or[lag %in% c("2", "3")]
+lags_grid <- read_table("lags_grid.csv")[outcome == "non_accidental" & estimable == TRUE &
+                                           lag == "cumulative" & adjustment == "none"]
+stopifnot(nrow(lags_grid) == uniqueN(lags_grid[, .(heatwave, ozone)]))
+burden <- read_table("burden_estimates.csv")[
+  outcome == "non_accidental" & lag == lag_main & or_source == "age-specific" &
+    level == "total" & category == "any"]
+# Heatwave days of each municipality over the study period, working definition
+heatwave_days <- read_table("series_annual_by_municipality.csv")[
+  !is.na(com), .(days = sum(heatwave_days)), by = municipality][order(-days)]
 ```
 
 ## The study
@@ -30,19 +59,39 @@ regression.
 Principal investigator: Estela Blanco, Pontificia Universidad Católica de
 Chile. Data analysis: Amaru Agüero Jiménez. Funded by ANID FONDECYT 11240322.
 
-## Reports
+## Deliverables
 
-| | Report | Content |
-|---|---|---|
-| 1 | [Exposure data: verification and quality control](01_exposure_qc.html) | Coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series, codebook of the exposure dataset |
-| 2 | [Exposure: maps and time trends](02_exposure_trends.html) | Municipal maps and time series of temperature, heatwaves, ozone and compound exposure, across the grid of definitions |
-| 3 | [Validation of the ozone exposure](03_ozone_validation.html) | Station inputs against the hourly SINCA records, leave-one-station-out cross-validation of IDW and kriging, delivered against rebuilt municipal series, comparison with the CAMS reanalysis |
-| 4 | [Mortality and the case-crossover dataset](04_mortality_case_crossover.html) | Selection of deaths, mortality by cause, age, sex, municipality and year, structure of the analytic dataset, method checks |
-| 5 | [Models](05_models.html) | Preliminary odds ratios and additive interaction with the working definitions |
-| | [Exposure dataset in Python](py_01_exposure.html) | Independent rebuild of the exposure dataset, compared with R column by column |
-| | [Mortality and models in Python](py_02_models.html) | Independent rebuild of the selection of deaths, the referent days and the regression, compared with R |
+One page for each deliverable of the data analysis, with one section for each
+product that was requested.
 
-Every report shows its code folded next to each result. The R scripts are in
+::: {.no-download}
+
+| | Deliverable | Content | State |
+|---|---|---|---|
+| 1 | [Data verification, quality control and maps of spatio-temporal trends](deliverable_1_exposure.html) | Methodology: sources of the data and definition of every variable; coverage and calendars of the sources, temperature thresholds, the 15 heatwave indicators, quality rules of the air pollution series; validation of the ozone exposure against the hourly SINCA records, by leave-one-station-out cross-validation of IDW and kriging and against the CAMS reanalysis; the exposure dataset for 2009-2020 with its codebook; municipal maps and time series of temperature, heatwaves, ozone and compound exposure, for every municipality and for their mean, and across the grid of definitions | Done |
+| 2 | [Deaths dataset, case-crossover dataset and mortality summary](deliverable_2_mortality.html) | Selection of deaths, mortality by cause, age, sex, municipality and year, structure of the analytic dataset, exposure at lags 0 to 3, method checks | Done |
+| 3 | [Main models, additive interaction and mortality burden](deliverable_3_models.html) | Odds ratios and additive interaction with the working definitions, by cause, age and sex, and across the grid of definitions; excess deaths by exposure category, age group, year and municipality | Done with the working definitions; to be rerun once they are confirmed |
+| 4 | [Sensitivity analyses and publication figures](deliverable_4_sensitivity.html) | Adjustment for PM2.5, nitrogen dioxide, humidity and temperature, three ozone levels, alternative ozone series; all the lags in one model, across the grid of definitions, distributed lag non-linear model of temperature; publication figures | Analyses and figures done with the working definitions; final report pending |
+
+:::
+
+Three more pages repeat the analysis in Python, independently of the R code,
+and compare the results with those of R.
+
+::: {.no-download}
+
+| Page | Content |
+|---|---|
+| [Exposure dataset in Python](py_01_exposure.html) | Independent rebuild of the exposure dataset, compared with R column by column |
+| [Mortality and models in Python](py_02_models.html) | Independent rebuild of the selection of deaths, the referent days and the regression, compared with R |
+| [Burden, sensitivity and lags in Python](py_03_burden_sensitivity_lags.html) | Independent rebuild of the burden, the adjusted models and the models with all the lags, compared with R |
+
+:::
+
+Every page shows its code folded next to each result, and each section names
+the scripts and the files behind its tables and figures. Each table has a button
+that saves it as an Excel file, and each figure a button that saves it as a
+PNG at 600 dpi. The R scripts are in
 [`Code/`](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code)
 of the repository.
 
@@ -60,32 +109,76 @@ deaths.
 ## Findings of the data checks
 
 These are the points a reader of the results should know before anything else.
-Each is documented in the report named.
+Each is documented in the deliverable named.
 
 1. **The reference heatwave script counts consecutive days across
    municipalities.** In `HeatWave_PretermBirth_Chile`, the lag that defines
    "consecutive days" runs over rows of a table with all municipalities
    stacked. This project counts them within each municipality.
-   ([Report 1](01_exposure_qc.html))
+   ([Deliverable 1](deliverable_1_exposure.html#sec-quality-control))
 2. **CR2MET has no 29 February.** The three leap days of the study period are
-   filled by interpolation and flagged. ([Report 1](01_exposure_qc.html))
+   filled by interpolation and flagged. ([Deliverable 1](deliverable_1_exposure.html#sec-quality-control))
 3. **The delivered ozone series understates the days with most ozone.** Its
    station inputs were trimmed at the 99th percentile of the hourly values,
    which removes the afternoon peaks of the hottest days.
-   ([Report 3](03_ozone_validation.html))
+   ([Deliverable 1](deliverable_1_exposure.html#sec-ozone-validation))
 4. **Part of the delivered ozone series rests on imputed station values.**
    Station-days without a validated measurement were filled by imputation; the
    Independencia monitor, which failed in 2016, has no validated record for
-   most of that year. ([Report 3](03_ozone_validation.html))
+   most of that year. ([Deliverable 1](deliverable_1_exposure.html#sec-ozone-validation))
 5. **The plan names the daily maximum 8-hour mean (MDA8); the delivered series
    is a 24-hour mean.** The exposure dataset now holds three ozone series:
    delivered, 24-hour mean rebuilt from validated records, and MDA8.
-   ([Report 3](03_ozone_validation.html))
+   ([Deliverable 1](deliverable_1_exposure.html#sec-ozone-validation))
 6. **A fixed threshold of 30 °C is not comparable across municipalities**,
-   because CR2MET values are means over the whole municipal area, mountains
-   included. ([Report 1](01_exposure_qc.html))
-7. **COVID-19 deaths fall outside non-accidental mortality as defined in the
-   plan** (A00-R99). ([Report 4](04_mortality_case_crossover.html))
+   because the CR2MET value of a municipality describes its whole territory,
+   mountains included. ([Deliverable 1](deliverable_1_exposure.html#sec-quality-control))
+7. **The temperature of a municipality is not always that of the place where
+   people live.** `r heatwave_days$municipality[1]` has the most heatwave days
+   of the 33 (`r heatwave_days$days[1]` with the working definition, against
+   `r min(heatwave_days$days)` to `r heatwave_days$days[2]` in the others): the
+   CR2MET series describes the whole territory of the municipality, and its
+   hot days come in longer spells.
+   ([Deliverable 1](deliverable_1_exposure.html#sec-heatwave-municipalities))
+8. **COVID-19 deaths fall outside non-accidental mortality as defined in the
+   plan** (A00-R99). ([Deliverable 2](deliverable_2_mortality.html#sec-deaths))
+
+## Preliminary results
+
+With the working definitions, which the principal investigator has not
+confirmed (heatwave `r get_param("models", "heatwave_main")`, ozone above the
+`r get_param("models", "ozone_cutoff_main")`th percentile of the municipality
+in the delivered series, lag `r lag_main`). They are not findings to cite.
+
+1. **Odds of non-accidental death against days with neither exposure:**
+   `r or_main("e10")` on heatwave-only days, `r or_main("e01")` on
+   high-ozone-only days and `r or_main("e11")` on days with both.
+   ([Deliverable 3](deliverable_3_models.html#sec-models))
+2. **No additive interaction:** REOI `r reoi_main`. Across causes, age groups,
+   sex and lags, `r reoi_excluding_zero` of the `r nrow(reoi_all)` intervals
+   exclude zero, in both directions, about what chance alone gives.
+   Adjustment and the choice of ozone series do not change it.
+   ([Deliverables 3](deliverable_3_models.html#sec-interaction) and
+   [4](deliverable_4_sensitivity.html#sec-sensitivity))
+3. **The associations are on the day of exposure and the day after.** With
+   the four lags in one model the odds ratios at lags 2 and 3 lie between
+   `r fmt(min(later$or), 2)` and `r fmt(max(later$or), 2)`.
+   ([Deliverable 4](deliverable_4_sensitivity.html#sec-lag-structure))
+4. **Over the four days after exposure the picture is less clear.** With the
+   four lags in one model the cumulative REOI is positive in
+   `r lags_grid[estimate_reoi > 0, .N]` of the `r nrow(lags_grid)` combinations
+   of heatwave definition and ozone cut-off, and its interval excludes zero in
+   `r lags_grid[low_reoi > 0, .N]`, mostly with the 30 °C and EHF definitions.
+   With the working definition it has the same sign and an interval that
+   includes zero. Exploratory. ([Deliverable 4](deliverable_4_sensitivity.html#sec-lag-structure))
+5. **The association with high ozone alone does not survive adjustment:**
+   `r ozone_adjusted` with PM2.5, nitrogen dioxide and humidity in the model,
+   and most of the association of ozone is shared with temperature.
+   ([Deliverable 4](deliverable_4_sensitivity.html#sec-sensitivity))
+6. **Attributable burden:** `r ci(burden$excess, burden$excess_low, burden$excess_high, 0)`
+   excess deaths in the warm seasons of 2009 to 2020,
+   `r fmt(burden$excess_pct_of_deaths, 1)`% of the non-accidental deaths, with
+   unadjusted odds ratios. ([Deliverable 3](deliverable_3_models.html#sec-burden))
 
 ## Decisions pending
 
@@ -97,28 +190,57 @@ everything.
 |---|---|---|
 | Season of the temperature percentiles | All days of the year | Warm season only |
 | 29 February | Interpolated | Left missing |
+| Temperature of the municipalities that reach into the Andes | The CR2MET series of the whole territory, as delivered | Temperature of the populated area from the CR2MET grid; models without the municipality as a sensitivity analysis |
 | Ozone series of the main analysis | Delivered 24-hour mean (`o3`) | Rebuilt 24-hour mean (`o3obs`), MDA8 (`o3mda8`) |
 | Status of the hourly records | Validated only | Also preliminary and not validated |
 | Interpolation method of the main analysis | IDW | Ordinary kriging |
 | Scope of the ozone percentiles | Within each municipality | Pooled |
 | Kriging values below zero | Set to missing | Truncated at zero |
 | Headline definitions of the models | Heatwave `hw_p95_2d`, ozone above the 75th percentile | Any cell of the grid |
+| Primary lag | Lag 0 | Lag 1, or lags 0 to 3 together |
+| Reference category | Every non-heatwave day at or below the ozone cut-off | Ozone at or below the 50th percentile, as worded in the plan |
+| Temperature in the continuous models | Percentile within the municipality, warm season | Degrees Celsius |
+| Age groups of the rates per 100,000 | 0-64 and 65 or more (INE gives one group for 80 or more) | Another population source for 65-84 and 85 or more |
 | Months of the pandemic | Kept, COVID-19 deaths outside the outcome | Excluded |
-
-## Deliverables
-
-| | Deliverable | State |
-|---|---|---|
-| 1 | Exposure dataset, quality control, maps and trends | Done |
-| 2 | Clean deaths dataset, case-crossover dataset, mortality tables | Done |
-| 3 | Models, additive interaction, subgroups, attributable burden | Models preliminary; burden not started |
-| 4 | Sensitivity analyses, publication figures, final report | Not started |
 
 ## Reproducing the work
 
+Two commands, from the project folder, run everything:
+
 ```
 Rscript Code/run_all.R
+python3 Code/run_python.py
 ```
 
-runs the scripts in order, the method checks and the reports. Inputs and their
-sources are listed in `Data/README.md`; none of the data are in the repository.
+The first is the R pipeline, which in RStudio is started with the Source button
+on `Code/run_all.R`. It installs the R packages that are missing, checks the
+inputs, runs the checks of the methods, the scripts in order and the R
+reports, and then compares every table with its copy from before the run. The
+second renders the reports written in Python, which compare their own results
+with those of R; it prepares its Python packages by itself and is not needed
+by the first. The whole project runs from its own folder: the scripts find it
+through the RStudio project file, and no path of a particular computer appears
+in the code. Three files make a run repeatable on another computer:
+
+- `Data/input_manifest.csv` gives the size and checksum of every input file.
+  Each script stops if an input is missing or is not the listed file. The
+  inputs and their sources are described in `Data/README.md`; none of the data
+  are in the repository.
+- `Output/run_environment.txt` and `Output/run_environment_python.txt`
+  describe the machine that last ran each of the two, which produced the
+  tables of the repository: system, R, Quarto, Python and package versions.
+- `renv.lock` and `requirements.txt` hold a complete set of package versions,
+  those of the first machine on which the project was run. The two files above
+  list where a machine differs from them.
+
+The pipeline has been run from the inputs on two machines: Linux with R 4.3.3,
+and macOS on Apple silicon with R 4.5.2 and the current packages. The results
+of the main analysis agree between them within a relative difference of 2e-11.
+The results built on the ordinary kriging that the project computes itself
+(the rebuilt series `o3obs_ok` and `o3mda8_ok`, and the cross-validation) differ
+from the third decimal of their odds ratios: on about one day in a hundred the
+kriging system is close to singular and its solution changes with rounding in
+the last digit, which the two machines do not do in the same way. Inverse
+distance weighting, used for the main analysis, gives the same values on both.
+On each machine a second run gives the tables of the first. The section
+"Reproducibility" of the README of the repository has the details.

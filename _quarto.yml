@@ -2,6 +2,8 @@ project:
   type: default
   render:
     - docs/*.qmd
+  # Removes from each rendered page the icon classes it does not use
+  post-render: docs/_prune_icons.ts
 
 lang: en
 
@@ -15,11 +17,24 @@ format:
     code-summary: "Show the code"
     code-tools: true
     embed-resources: true
+    html-math-method: mathml
     theme: cosmo
-    fig-dpi: 150
+    # Figures are shown at their size in inches (96 pixels per inch) and
+    # stored at 600 dpi: see fig.retina below
+    fig-format: retina
+    fig-dpi: 96
     fig-width: 8
     fig-height: 4.6
     include-before-body: docs/_nav.html
+    # Download buttons of the tables (Excel) and of the figures (PNG)
+    include-after-body: docs/_downloads.html
+
+# R reports: figures drawn by ragg, the same on every system, with
+# 96 x 6.25 = 600 pixels per inch
+knitr:
+  opts_chunk:
+    dev: ragg_png
+    fig.retina: 6.25
 
 execute:
   echo: true

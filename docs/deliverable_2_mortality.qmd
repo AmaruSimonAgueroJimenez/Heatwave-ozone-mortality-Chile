@@ -1,6 +1,6 @@
 ---
-title: "Mortality and the case-crossover dataset"
-subtitle: "Deliverable 2 · Heatwaves, ozone and mortality in Santiago, 2009-2020"
+title: "Deliverable 2: deaths dataset, case-crossover dataset and mortality summary"
+subtitle: "Heatwaves, ozone and mortality in Santiago, 2009-2020"
 author: "Amaru Agüero Jiménez"
 date: today
 ---
@@ -32,24 +32,37 @@ cause_labels <- c(
 stopifnot(setequal(names(cause_labels), names(get_param("mortality", "cause_groups"))))
 ```
 
-## Scope
-
-Deaths of residents of the 33 study municipalities during the warm seasons
+Second deliverable of the data analysis. Deaths of residents of the 33 study municipalities during the warm seasons
 (1 November to 31 March) of 2009 to 2020, from the death records of the
 Department of Health Statistics and Information (DEIS), and the analytic
 dataset of the space-time-stratified case-crossover design.
 
-```{r}
-#| eval: false
-#| file: ../Code/20_mortality_deis.R
-#| code-summary: "Code/20_mortality_deis.R"
-```
+::: {.no-download}
 
-```{r}
-#| eval: false
-#| file: ../Code/21_case_crossover_dataset.R
-#| code-summary: "Code/21_case_crossover_dataset.R"
-```
+| Requested | Where |
+|---|---|
+| Clean DEIS deaths dataset: non-accidental and cardiopulmonary causes (ICD-10), urban Santiago, warm seasons 2009-2020 | [Clean deaths dataset](#sec-deaths) |
+| Case-crossover analytic dataset, stratified in time and space: three or four control days per death, same day of the week, month, year and municipality | [Case-crossover analytic dataset](#sec-case-crossover) |
+| Exposure at lags 0 to 3 | [Exposure at lags 0 to 3](#sec-lagged-exposure) |
+| Summary table of mortality | [Mortality summary](#sec-mortality-summary) |
+| R scripts | [R scripts](#sec-scripts) |
+
+:::
+
+The tables and the figures of this page can be downloaded: each table has an
+**Excel** button above it, and each figure a **PNG, 600 dpi** button below it.
+Each part names the scripts and the files behind its tables and figures.
+
+# Clean deaths dataset {#sec-deaths}
+
+*Script: `Code/20_mortality_deis.R`. Dataset: `Data/Derived/deaths_clean.csv`.
+Tables: `Output/Tables/mortality_flow.csv` and `mortality_excluded_causes.csv`.*
+
+The dataset is `Data/Derived/deaths_clean.csv`, written by
+`Code/20_mortality_deis.R`: one row per death, with the date, the municipality
+of residence, sex, age, place of death, the underlying cause (ICD-10) and one
+flag for each cause group of the analysis plan. Deaths outside non-accidental
+mortality stay in the file, flagged, so that every exclusion can be counted.
 
 ## Source and selection
 
@@ -85,7 +98,15 @@ is a decision for the principal investigator.
 `r fmt(deaths[age_years > 110, .N])` records have a recorded age above 110 years;
 they stay in the oldest age group.
 
-## Mortality by cause, age and sex
+# Mortality summary {#sec-mortality-summary}
+
+*Script: `Code/20_mortality_deis.R`. Tables:
+`Output/Tables/mortality_by_cause_year.csv` and
+`mortality_by_municipality_year.csv`. The table by age and sex, the series of
+deaths per day and the maps are computed in this page from
+`Data/Derived/deaths_clean.csv`.*
+
+## By cause, age and sex
 
 ```{r}
 #| label: tbl-cause-year
@@ -123,7 +144,7 @@ ggplot(monthly, aes(year, per_day)) +
   labs(x = NULL, y = "Deaths per day")
 ```
 
-### By municipality
+## By municipality
 
 ```{r}
 #| label: fig-map-deaths
@@ -166,7 +187,12 @@ The same table for every cause group, age group and sex is in
 rates: population denominators enter with the attributable burden
 (deliverable 3).
 
-## The case-crossover dataset
+# Case-crossover analytic dataset {#sec-case-crossover}
+
+*Script: `Code/21_case_crossover_dataset.R`, with the functions
+`build_case_crossover()` and `lagged_exposure()` of `Code/01_functions.R`.
+Datasets: `Data/Derived/case_crossover.csv` and `exposure_lagged.csv`. Table:
+`Output/Tables/case_crossover_summary.csv`.*
 
 Each non-accidental death is one stratum. Its referent days are all the days of
 the same municipality, calendar year, month and day of the week: the day of
@@ -187,6 +213,8 @@ kable(cc[, .(id, com, case_date, date, case, sex, age_group, icd3)],
       caption = "First rows of case_crossover.csv: two deaths with their referent days.")
 ```
 
+## Exposure at lags 0 to 3 {#sec-lagged-exposure}
+
 `Data/Derived/case_crossover.csv` holds the structure and the attributes of
 each death (sex, age group, cause flags). `Data/Derived/exposure_lagged.csv`
 holds, for every municipality-day used as a referent, each exposure variable at
@@ -202,9 +230,13 @@ model_data <- merge(cc, lagged[, .(com, date, hw = hw_p95_2d_lag1, oz = o3_idw_g
 clogit(case ~ hw + oz + strata(id), data = model_data)
 ```
 
-## Method checks
+# Method checks {#sec-method-checks}
 
-`tests/test_methods.R` checks the functions behind this page and the next
+*Script: `tests/test_methods.R`, run here and at the start of every run of
+`Code/run_all.R`.*
+
+`tests/test_methods.R` checks the functions behind this page and the models of
+deliverable 3
 against independent calculations: the referent selection, the lagging, the
 equivalence between the fit on individual records and the faster weighted fit
 used in the models, the recovery of known odds ratios from simulated deaths,
@@ -217,6 +249,33 @@ checks <- system2(file.path(R.home("bin"), "Rscript"),
                   shQuote(here::here("tests", "test_methods.R")), stdout = TRUE, stderr = TRUE)
 if (!is.null(attr(checks, "status"))) stop(paste(checks, collapse = "\n"))
 cat(grep("^ok|^All|simulated", checks, value = TRUE), sep = "\n")
+```
+
+# R scripts {#sec-scripts}
+
+The scripts are in [`Code/`](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code) of the repository. They are
+not executed when this page is rendered: `Code/run_all.R` runs them in order
+and this page reads their outputs. The code of each one is folded below.
+
+::: {.no-download}
+
+| Script | Purpose |
+|---|---|
+| `Code/20_mortality_deis.R` | Deaths of residents of the study municipalities by cause, age and sex. |
+| `Code/21_case_crossover_dataset.R` | Case-crossover dataset and lagged exposures. |
+
+:::
+
+```{r}
+#| eval: false
+#| file: ../Code/20_mortality_deis.R
+#| code-summary: "Code/20_mortality_deis.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/21_case_crossover_dataset.R
+#| code-summary: "Code/21_case_crossover_dataset.R"
 ```
 
 ```{r}

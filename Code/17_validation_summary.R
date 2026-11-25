@@ -101,8 +101,14 @@ overall <- loso_long[, validation_metrics(observed, predicted), by = .(metric, m
 overall <- merge(overall, loso_long[, .(not_predicted_pct = 100 * mean(is.na(predicted))),
                                     by = .(metric, method)], by = c("metric", "method"))
 # Share of observed values inside the nominal kriging interval
+below_zero <- loso[!is.na(ok) & ok_var < 0, .N]
+if (below_zero > 0) {
+  message(below_zero, " kriging variance(s) below zero within rounding (lowest ",
+          format(min(loso$ok_var, na.rm = TRUE)), "), counted as zero")
+}
 coverage <- loso[!is.na(ok), .(method = "ok", interval_coverage_pct =
-  100 * mean(abs(observed - ok) <= z * sqrt(ok_var))), by = metric]
+  100 * mean(abs(observed - ok) <= z * kriging_sd(ok_var, params$variance_rounding))), by = metric]
+stopifnot(!anyNA(coverage$interval_coverage_pct))
 overall <- merge(overall, coverage, by = c("metric", "method"), all.x = TRUE)
 fwrite(overall, file.path(dir_tables, "validation_loso_overall.csv"))
 

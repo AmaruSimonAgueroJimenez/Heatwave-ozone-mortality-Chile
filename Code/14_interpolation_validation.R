@@ -61,13 +61,7 @@ loso_day <- function(day) {
   }
   rbindlist(results)
 }
-# The result does not depend on the number of cores.
-loso_days <- parallel::mclapply(as.list(cv_days), loso_day, mc.cores = parallel::detectCores())
-failed <- vapply(loso_days, inherits, logical(1), what = "try-error")
-if (any(failed)) {
-  stop("Cross-validation failed on ", format(cv_days[which(failed)[1]]), ": ",
-       loso_days[[which(failed)[1]]], call. = FALSE)
-}
+loso_days <- run_parallel(as.list(cv_days), loso_day, "Cross-validation")
 loso <- rbindlist(loso_days)
 stopifnot(nrow(loso) > 0)
 fwrite(loso, file.path(dir_derived, "validation_loso_predictions.csv"))

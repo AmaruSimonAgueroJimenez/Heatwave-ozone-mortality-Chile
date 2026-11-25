@@ -181,8 +181,13 @@ daily_from_hourly <- function(h, min_hours, mda8_min_hours, mda8_min_windows) {
   h <- h[full, on = .(date, hour)]
   data.table::setorder(h, date, hour)
   valid <- !is.na(h$value)
-  n8 <- data.table::frollsum(valid, 8, align = "right")
-  s8 <- data.table::frollsum(data.table::fifelse(valid, h$value, 0), 8, align = "right")
+  # algo = "exact" adds the eight hours of each window on their own. The
+  # default carries one running sum along the whole series, and its rounding
+  # error depends on the processor: 8-hour means of whole numbers, which are
+  # multiples of 1/8, then stop being equal to each other on some machines.
+  n8 <- data.table::frollsum(valid, 8, align = "right", algo = "exact")
+  s8 <- data.table::frollsum(data.table::fifelse(valid, h$value, 0), 8, align = "right",
+                             algo = "exact")
   h[, mean8 := data.table::fifelse(n8 >= mda8_min_hours, s8 / n8, NA_real_)]
   h[, .(
     n_hours = sum(!is.na(value)),
@@ -228,6 +233,21 @@ interpolate_day <- function(stations, targets, value, params) {
   data.table::data.table(
     idw = idw_pred$var1.pred, ok = kriging$pred, ok_var = kriging$var, ok_error = kriging$error
   )
+}
+
+# Standard deviation of a kriging prediction from its variance (ppb squared).
+# A variance cannot be negative, but when the kriging system of a day is close
+# to singular a variance of zero comes out as a tiny number of either sign,
+# depending on the machine. Values between minus `rounding` and zero count as
+# zero; a value further below zero stops the script.
+kriging_sd <- function(variance, rounding) {
+  stopifnot(length(rounding) == 1, !is.na(rounding), rounding >= 0)
+  lowest <- suppressWarnings(min(variance, na.rm = TRUE))    # Inf when all are missing
+  if (lowest < -rounding) {
+    stop("Kriging variance below zero by more than the rounding allowed (", rounding,
+         "): ", format(lowest), call. = FALSE)
+  }
+  sqrt(pmax(variance, 0))
 }
 
 # Agreement between observed and predicted values. `r2` is the coefficient of
@@ -409,6 +429,212 @@ additive_interaction <- function(log_or, covariance, conf_level) {
   )
 }
 
+# ---- Model datasets ---------------------------------------------------------
+
+# Rows of the case-crossover dataset for an outcome and a subgroup. `subgroup`
+# is "all", one of the age labels, "male" or "female".
+select_case_rows <- function(cc, outcome, subgroup, age_labels) {
+  stopifnot(outcome %in% names(cc), subgroup %in% c("all", age_labels, "male", "female"))
+  rows <- cc[[outcome]] == TRUE
+  if (subgroup %in% age_labels) rows <- rows & cc$age_group == subgroup
+  if (subgroup %in% c("male", "female")) rows <- rows & cc$sex == subgroup
+  rows & !is.na(rows)
+}
+
+# Collapsed dataset of an outcome and a subgroup, with the position of each
+# referent day in the table of lagged exposures (column exposure_row).
+prepare_model_data <- function(cc, lagged, outcome, subgroup, age_labels) {
+  collapsed <- collapse_case_crossover(cc[select_case_rows(cc, outcome, subgroup, age_labels)])
+  collapsed[, exposure_row := lagged[collapsed, on = .(com, date), which = TRUE]]
+  stopifnot(!anyNA(collapsed$exposure_row))
+  collapsed
+}
+
+# Attach one heatwave definition and one ozone flag at a lag, and the three
+# exposed categories of the compound exposure. Only the strata where both are
+# known on every referent day are kept.
+#   hw, oz   heatwave and high-ozone indicators
+#   e10      heatwave only        e01   high ozone only        e11   both
+attach_compound_exposure <- function(collapsed, lagged, heatwave, ozone_flag, lag) {
+  d <- data.table::copy(collapsed)
+  d[, hw := lagged[[paste0(heatwave, "_lag", lag)]][exposure_row]]
+  d[, oz := lagged[[paste0(ozone_flag, "_lag", lag)]][exposure_row]]
+  complete <- d[, .(ok = !anyNA(hw) && !anyNA(oz)), by = stratum][ok == TRUE, stratum]
+  d <- d[stratum %in% complete]
+  d[, `:=`(e10 = as.integer(hw == 1 & oz == 0), e01 = as.integer(hw == 0 & oz == 1),
+           e11 = as.integer(hw == 1 & oz == 1))]
+  d
+}
+
+# Deaths by exposure category on the day of death (lagged as attached)
+category_deaths <- function(d) {
+  d[case == 1, .(deaths = sum(n_deaths), deaths_e00 = sum(n_deaths[hw == 0 & oz == 0]),
+                 deaths_e10 = sum(n_deaths[e10 == 1]), deaths_e01 = sum(n_deaths[e01 == 1]),
+                 deaths_e11 = sum(n_deaths[e11 == 1]))]
+}
+
+# Compound model (reference E00): odds ratios of E10, E01 and E11, additive
+# interaction and multiplicative interaction OR11 / (OR10 x OR01). `adjust`
+# adds further terms to the model; the three category terms stay first.
+compound_results <- function(d, conf_level, adjust = character(0)) {
+  categories <- c("e10", "e01", "e11")
+  fit <- fit_conditional_logit(d, c(categories, adjust))
+  or <- odds_ratios(fit, conf_level)
+  beta <- stats::coef(fit)[categories]
+  covariance <- stats::vcov(fit)[categories, categories]
+  interaction <- additive_interaction(beta, covariance, conf_level)
+  # Multiplicative interaction on the log scale
+  g <- c(-1, -1, 1)
+  log_ratio <- sum(g * beta)
+  se_ratio <- sqrt(drop(t(g) %*% covariance %*% g))
+  z <- stats::qnorm(1 - (1 - conf_level) / 2)
+  interaction <- rbind(interaction, data.table::data.table(
+    measure = "multiplicative ratio", estimate = exp(log_ratio),
+    low = exp(log_ratio - z * se_ratio), high = exp(log_ratio + z * se_ratio), null_value = 1
+  ))
+  list(or = or, interaction = interaction, fit = fit)
+}
+
+# ---- Continuous exposures and linear combinations ---------------------------
+
+# Percentile (0 to 100) of each value within the reference distribution of
+# its municipality: 100 x the share of reference values at or below it.
+# `reference` has the columns com and value.
+local_percentile <- function(value, com, reference) {
+  stopifnot(length(value) == length(com), all(c("com", "value") %in% names(reference)),
+            !anyNA(reference$value), all(unique(com) %in% reference$com))
+  out <- rep(NA_real_, length(value))
+  for (code in unique(com)) {
+    rows <- which(com == code)
+    out[rows] <- 100 * stats::ecdf(reference$value[reference$com == code])(value[rows])
+  }
+  out
+}
+
+# Natural cubic spline basis with explicit knots (no knot is chosen from the
+# data), as a matrix with columns <prefix>1, <prefix>2, ...
+spline_basis <- function(x, knots, boundary, prefix) {
+  stopifnot(length(boundary) == 2, all(knots > boundary[1]), all(knots < boundary[2]))
+  basis <- splines::ns(x, knots = knots, Boundary.knots = boundary)
+  colnames(basis) <- paste0(prefix, seq_len(ncol(basis)))
+  basis
+}
+
+# Odds ratios of linear combinations of coefficients. Each row of `weights`
+# is one combination; its columns are named after the coefficients it uses.
+combine_coefficients <- function(fit, weights, conf_level) {
+  terms <- colnames(weights)
+  stopifnot(!is.null(terms), all(terms %in% names(stats::coef(fit))))
+  z <- stats::qnorm(1 - (1 - conf_level) / 2)
+  beta <- stats::coef(fit)[terms]
+  covariance <- stats::vcov(fit)[terms, terms, drop = FALSE]
+  estimate <- drop(weights %*% beta)
+  se <- sqrt(rowSums((weights %*% covariance) * weights))
+  data.table::data.table(
+    log_or = estimate, se = se, or = exp(estimate),
+    or_low = exp(estimate - z * se), or_high = exp(estimate + z * se)
+  )
+}
+
+# ---- Mortality burden -------------------------------------------------------
+
+# Population projections of INE by municipality, year, sex and single year of
+# age (long format, parquet). Returns com, year, sex, age and population for
+# the listed municipalities and years. The last age, `open_age`, is an open
+# group (that age or more).
+read_population <- function(path, codes, years, open_age) {
+  if (!requireNamespace("nanoparquet", quietly = TRUE)) {
+    stop("Package 'nanoparquet' is needed to read the population file.", call. = FALSE)
+  }
+  raw <- data.table::as.data.table(nanoparquet::read_parquet(path))
+  expected <- c("cut_region", "region", "cut_provincia", "provincia", "cut_comuna", "comuna",
+                "edad", "año", "población", "género")
+  stopifnot(identical(enc2utf8(names(raw)), enc2utf8(expected)))
+  data.table::setnames(raw, c("cut_region", "region", "cut_provincia", "province", "com",
+                              "municipality", "age", "year", "population", "sex"))
+  sex_labels <- c(masculino = "male", femenino = "female")
+  stopifnot(all(raw$sex %in% names(sex_labels)))
+  out <- raw[com %in% codes & year >= years[1] & year <= years[2],
+             .(com = as.integer(com), year = as.integer(year), sex = unname(sex_labels[sex]),
+               age = as.integer(age), population)]
+  stopifnot(
+    setequal(unique(out$com), codes), all(years[1]:years[2] %in% out$year),
+    max(out$age) == open_age, !anyNA(out$population), all(out$population >= 0),
+    anyDuplicated(out[, .(com, year, sex, age)]) == 0
+  )
+  data.table::setorder(out, com, year, sex, age)
+  out[]
+}
+
+# Deaths attributable to the exposed categories of the compound exposure.
+#
+# `cells` has one row per group, age group and category ("e10", "e01", "e11"):
+#   expected   deaths expected on the exposed days at the baseline rate
+#              (baseline deaths per day x number of exposed days)
+#   observed   deaths observed on the exposed days
+# `models` is a list named by age group; each element holds `beta`, the log
+# odds ratios named e10, e01 and e11, and their `covariance`.
+#
+# For every group of `by`, each category and the three together ("any"):
+#   excess        expected x (OR - 1), the formula of the analysis plan
+#   attributable  observed x (OR - 1) / OR, the attributable fraction among
+#                 the exposed applied to the deaths observed on exposed days
+# Intervals by the delta method. Only the odds ratios carry uncertainty:
+# baseline rates and death counts are taken as fixed. Models of different age
+# groups are independent; the three odds ratios of one model are not.
+attributable_deaths <- function(cells, models, by, conf_level) {
+  categories <- c("e10", "e01", "e11")
+  stopifnot(
+    all(c("age_group", "category", "expected", "observed", by) %in% names(cells)),
+    all(cells$category %in% categories), all(unique(cells$age_group) %in% names(models)),
+    !anyNA(cells$expected), !anyNA(cells$observed)
+  )
+  z <- stats::qnorm(1 - (1 - conf_level) / 2)
+  sums <- cells[, .(expected = sum(expected), observed = sum(observed)),
+                by = c(by, "age_group", "category")]
+  one_group <- function(g) {
+    data.table::rbindlist(lapply(c(categories, "any"), function(target) {
+      include <- as.numeric(categories %in% (if (target == "any") categories else target))
+      total <- c(expected = 0, observed = 0, excess = 0, attributable = 0,
+                 var_excess = 0, var_attributable = 0)
+      for (age in unique(g$age_group)) {
+        beta <- models[[age]]$beta[categories]
+        covariance <- models[[age]]$covariance[categories, categories]
+        stopifnot(!anyNA(beta), !anyNA(covariance))
+        or <- exp(beta)
+        rows <- g[age_group == age]
+        expected <- stats::setNames(numeric(3), categories)
+        observed <- expected
+        expected[rows$category] <- rows$expected
+        observed[rows$category] <- rows$observed
+        gradient_excess <- include * expected * or          # d/d beta of expected x (OR - 1)
+        gradient_attributable <- include * observed / or    # d/d beta of observed x (1 - 1/OR)
+        total <- total + c(
+          sum(include * expected), sum(include * observed),
+          sum(include * expected * (or - 1)), sum(include * observed * (1 - 1 / or)),
+          drop(t(gradient_excess) %*% covariance %*% gradient_excess),
+          drop(t(gradient_attributable) %*% covariance %*% gradient_attributable)
+        )
+      }
+      data.table::data.table(
+        category = target, expected = total[["expected"]], observed = total[["observed"]],
+        excess = total[["excess"]],
+        excess_low = total[["excess"]] - z * sqrt(total[["var_excess"]]),
+        excess_high = total[["excess"]] + z * sqrt(total[["var_excess"]]),
+        attributable = total[["attributable"]],
+        attributable_low = total[["attributable"]] - z * sqrt(total[["var_attributable"]]),
+        attributable_high = total[["attributable"]] + z * sqrt(total[["var_attributable"]])
+      )
+    }))
+  }
+  if (length(by) == 0) return(one_group(sums))
+  # One call per group, keeping every column so that `by` may include age_group
+  groups <- unique(sums[, by, with = FALSE])
+  data.table::rbindlist(lapply(seq_len(nrow(groups)), function(i) {
+    cbind(groups[i], one_group(sums[groups[i], on = by]))
+  }))
+}
+
 # ---- Housekeeping -----------------------------------------------------------
 
 # Evaluate an expression and return its value together with the warning
@@ -425,4 +651,191 @@ with_warnings <- function(expr) {
 # Save the R session details next to a result, for reproducibility.
 write_session_info <- function(path) {
   writeLines(utils::capture.output(utils::sessionInfo()), path)
+}
+
+# ---- Software ---------------------------------------------------------------
+
+# Path of the Quarto program: on the search path, named by the variables
+# QUARTO_PATH or RSTUDIO_QUARTO (set by RStudio), or in one of the folders
+# where Quarto, RStudio and Positron install it on macOS and Linux.
+quarto_command <- function() {
+  named <- c(Sys.getenv("QUARTO_PATH"), Sys.getenv("RSTUDIO_QUARTO"))
+  named <- ifelse(dir.exists(named), file.path(named, "quarto"), named)
+  candidates <- c(
+    Sys.which("quarto"), named,
+    "/usr/local/bin/quarto", "/opt/homebrew/bin/quarto", "/opt/quarto/bin/quarto",
+    "/Applications/quarto/bin/quarto",
+    "/Applications/RStudio.app/Contents/Resources/app/quarto/bin/quarto",
+    "/Applications/Positron.app/Contents/Resources/app/quarto/bin/quarto"
+  )
+  found <- candidates[nzchar(candidates) & file.exists(candidates) & !dir.exists(candidates)]
+  if (length(found) == 0) {
+    stop("Quarto was not found. Install it from https://quarto.org, or give the path of ",
+         "its program in the environment variable QUARTO_PATH.", call. = FALSE)
+  }
+  unname(found[1])
+}
+
+# TRUE when the graphics device `device` (a function whose first argument is
+# the file) opens. The test is to open it: R can report that cairo is available
+# and still fail to load it, and then cairo_pdf() only warns and draws nothing.
+device_opens <- function(device) {
+  file <- tempfile(fileext = ".pdf")
+  on.exit(unlink(file))
+  before <- grDevices::dev.list()
+  suppressWarnings(try(device(file), silent = TRUE))
+  opened <- setdiff(grDevices::dev.list(), before)
+  for (d in opened) grDevices::dev.off(d)
+  length(opened) == 1
+}
+
+# The PDF device of the publication figures, as ggsave() takes it, with its
+# name. cairo_pdf embeds the fonts; on macOS it needs the libraries of XQuartz,
+# and where it does not open the standard pdf device of R is used instead.
+pdf_figure_device <- function() {
+  if (device_opens(grDevices::cairo_pdf)) {
+    list(name = "cairo_pdf", device = grDevices::cairo_pdf)
+  } else {
+    list(name = "pdf", device = "pdf")
+  }
+}
+
+# ---- Files of the folder inputs ---------------------------------------------
+
+# Hourly ozone file of each station of config/stations.csv, relative to
+# inputs$sinca_hourly_dir.
+sinca_hourly_files <- function() {
+  rules <- get_param("station_series")
+  stations <- data.table::fread(here::here(rules$stations_file), encoding = "UTF-8")
+  sprintf(rules$hourly_file_pattern, stations$sinca_id)
+}
+
+# Monthly CAMS files that hold every 3-hourly record of the local days of the
+# study years, relative to inputs$cams_eac4_dir. Local time is UTC plus
+# utc_offset_hours, so a local day ends inside the next UTC day and the last
+# study day needs the first record of the month after it.
+cams_month_files <- function() {
+  rules <- get_param("reanalysis")
+  days <- study_dates()
+  first_utc <- as.POSIXct(format(min(days)), tz = "UTC") - rules$utc_offset_hours * 3600
+  last_utc <- as.POSIXct(format(max(days) + 1), tz = "UTC") - rules$utc_offset_hours * 3600 - 1
+  months <- seq(as.Date(format(first_utc, "%Y-%m-01", tz = "UTC")),
+                as.Date(format(last_utc, "%Y-%m-01", tz = "UTC")), by = "month")
+  sprintf(rules$file_pattern, format(months, "%Y%m"))
+}
+
+# ---- Parallel runs ----------------------------------------------------------
+
+# Number of worker processes: the R option mc.cores when it is set (for
+# example options(mc.cores = 2), or the environment variable MC_CORES before R
+# starts), otherwise every core up to eight, so that a machine with many
+# cores does not run short of memory. Windows cannot fork R processes, so
+# there the jobs run one after the other.
+n_workers <- function() {
+  if (.Platform$OS.type == "windows") return(1L)
+  loadNamespace("parallel")                    # reads MC_CORES into the option
+  workers <- getOption("mc.cores", min(parallel::detectCores(), 8L))
+  if (length(workers) != 1 || is.na(workers) || workers < 1) {
+    stop("The number of cores could not be determined: set options(mc.cores = ...).",
+         call. = FALSE)
+  }
+  as.integer(workers)
+}
+
+# lapply over `jobs` in parallel worker processes; `what` names the task in the
+# messages. The results do not depend on the number of workers. Left alone,
+# mclapply only warns when a worker process dies (for lack of memory, for
+# example) and puts NULL in the place of its results, which would then be
+# missing from the tables without notice. Here the jobs of a dead worker are
+# run again, one by one, in the main process, and a job that fails stops the
+# run with its own error message.
+run_parallel <- function(jobs, fun, what) {
+  # Errors are caught inside the worker so that the message names the job
+  guarded <- function(job) {
+    tryCatch(list(value = fun(job)), error = function(e) list(error = conditionMessage(e)))
+  }
+  answered <- function(x) is.list(x) && any(c("value", "error") %in% names(x))
+  results <- suppressWarnings(parallel::mclapply(jobs, guarded, mc.cores = n_workers()))
+  stopifnot(length(results) == length(jobs))
+  lost <- which(!vapply(results, answered, logical(1)))
+  if (length(lost) > 0) {
+    message(what, ": ", length(lost), " of ", length(jobs), " jobs came back without a result ",
+            "(their worker process died); running them again one by one.")
+    results[lost] <- lapply(jobs[lost], guarded)
+  }
+  failed <- which(!vapply(results, function(x) "value" %in% names(x), logical(1)))
+  if (length(failed) > 0) {
+    first <- failed[1]
+    job <- jobs[[first]]
+    label <- if (is.atomic(job) && length(job) == 1) paste0(" (", format(job), ")") else ""
+    stop(what, " failed on job ", first, " of ", length(jobs), label, ": ",
+         results[[first]]$error, call. = FALSE)
+  }
+  lapply(results, `[[`, "value")
+}
+
+# ---- Reproduction check -----------------------------------------------------
+
+# Compare the tables (.csv) of two folders, file by file. `status` is
+#   identical         same bytes, or the same values in every cell (files
+#                     written on Windows and on other systems end their lines
+#                     differently)
+#   within tolerance  same rows, columns and text; numbers differ by at most
+#                     `tolerance`, relative to the larger of the two values
+#                     (absolute for values below 1)
+#   different         anything else
+#   only in reference, only in new
+# Numbers computed on another machine or with other package versions can
+# differ in their last digits; `max_difference` is the largest difference found.
+compare_tables <- function(reference_dir, new_dir, tolerance) {
+  stopifnot(dir.exists(reference_dir), dir.exists(new_dir), tolerance >= 0)
+  files <- sort(union(list.files(reference_dir, pattern = "\\.csv$"),
+                      list.files(new_dir, pattern = "\\.csv$")))
+  read <- function(path) data.table::fread(path, encoding = "UTF-8", integer64 = "character")
+  # A column of numbers comes back as text when one of them is a whole number
+  # too large for an integer (written without decimal point or exponent, as in
+  # 6129602301290210000). Such a column is compared as numbers. A column of
+  # whole numbers only (an identifier) stays as text and has to match exactly.
+  numbers_read_as_text <- function(x, y) {
+    if (!is.character(x) || !is.character(y)) return(FALSE)
+    values <- c(x, y)
+    values <- values[!is.na(values) & values != ""]
+    length(values) > 0 && !anyNA(suppressWarnings(as.numeric(values))) &&
+      !all(grepl("^[0-9]+$", values))
+  }
+  compare_one <- function(file) {
+    reference <- file.path(reference_dir, file)
+    new <- file.path(new_dir, file)
+    if (!file.exists(new)) return(list(status = "only in reference", max_difference = NA_real_))
+    if (!file.exists(reference)) return(list(status = "only in new", max_difference = NA_real_))
+    if (tools::md5sum(reference) == tools::md5sum(new)) {
+      return(list(status = "identical", max_difference = 0))
+    }
+    a <- read(reference)
+    b <- read(new)
+    if (!identical(names(a), names(b)) || nrow(a) != nrow(b)) {
+      return(list(status = "different", max_difference = NA_real_))
+    }
+    worst <- 0
+    for (column in names(a)) {
+      x <- a[[column]]
+      y <- b[[column]]
+      if (numbers_read_as_text(x, y)) {
+        x <- as.numeric(x)                                   # an empty cell becomes NA
+        y <- as.numeric(y)
+      }
+      if (is.numeric(x) && is.numeric(y)) {
+        if (!identical(is.na(x), is.na(y))) return(list(status = "different", max_difference = NA_real_))
+        difference <- abs(x - y) / pmax(1, abs(x), abs(y))
+        difference[!is.na(x) & x == y] <- 0                  # also equal infinite values
+        difference[!is.na(x) & is.nan(difference)] <- Inf    # infinite values of opposite sign
+        worst <- max(worst, difference, na.rm = TRUE)
+      } else if (!identical(as.character(x), as.character(y))) {
+        return(list(status = "different", max_difference = NA_real_))
+      }
+    }
+    status <- if (worst == 0) "identical" else if (worst <= tolerance) "within tolerance" else "different"
+    list(status = status, max_difference = worst)
+  }
+  data.table::rbindlist(lapply(files, function(file) c(list(file = file), compare_one(file))))
 }

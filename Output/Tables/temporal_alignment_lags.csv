@@ -1,11 +1,11 @@
 period,shift_days,n,correlation
 all other days,-2,114246,-0.221734644958264
-all other days,-1,114246,-0.0400262509611755
-all other days,0,114246,0.733496879621089
+all other days,-1,114246,-0.0400262509611761
+all other days,0,114246,0.733496879621099
 all other days,1,114246,0.0243856292127808
-all other days,2,114246,-0.232756038842177
+all other days,2,114246,-0.23275603884218
 "leap years, March to December",-2,30195,-0.207633071386815
-"leap years, March to December",-1,30228,-0.0414145064253035
-"leap years, March to December",0,30261,0.771872265752891
-"leap years, March to December",1,30228,0.0105420235442824
-"leap years, March to December",2,30195,-0.217852772867276
+"leap years, March to December",-1,30228,-0.0414145064253038
+"leap years, March to December",0,30261,0.771872265752887
+"leap years, March to December",1,30228,0.0105420235442823
+"leap years, March to December",2,30195,-0.217852772867274

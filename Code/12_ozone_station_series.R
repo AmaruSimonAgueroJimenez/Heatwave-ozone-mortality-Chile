@@ -107,14 +107,7 @@ rebuild_day <- function(day) {
   }
   out
 }
-# The result does not depend on the number of cores.
-rebuilt_days <- parallel::mclapply(as.list(keep_dates), rebuild_day,
-                                   mc.cores = parallel::detectCores())
-failed <- vapply(rebuilt_days, inherits, logical(1), what = "try-error")
-if (any(failed)) {
-  stop("Interpolation failed on ", format(keep_dates[which(failed)[1]]), ": ",
-       rebuilt_days[[which(failed)[1]]], call. = FALSE)
-}
+rebuilt_days <- run_parallel(as.list(keep_dates), rebuild_day, "Interpolation")
 rebuilt <- rbindlist(rebuilt_days)
 stopifnot(nrow(rebuilt) == nrow(municipalities) * length(keep_dates))
 

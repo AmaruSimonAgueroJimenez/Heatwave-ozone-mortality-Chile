@@ -44,57 +44,13 @@ lagged[, date := as.Date(date)]
 stopifnot(all(c(paste0(heatwave_main, "_lag", lags), paste0(ozone_flag_main, "_lag", lags))
               %in% names(lagged)))
 
-# Rows of the case-crossover dataset for an outcome and a subgroup
-select_rows <- function(outcome, subgroup) {
-  rows <- cc[[outcome]] == TRUE
-  if (subgroup %in% age_labels) rows <- rows & cc$age_group == subgroup
-  if (subgroup %in% c("male", "female")) rows <- rows & cc$sex == subgroup
-  stopifnot(subgroup %in% c("all", age_labels, "male", "female"))
-  rows & !is.na(rows)
-}
-
-# Collapsed dataset with the position of each row in the lagged exposures
+# The datasets and the compound model come from Code/01_functions.R, shared
+# with the burden, sensitivity and distributed-lag scripts.
 prepare <- function(outcome, subgroup) {
-  collapsed <- collapse_case_crossover(cc[select_rows(outcome, subgroup)])
-  collapsed[, exposure_row := lagged[collapsed, on = .(com, date), which = TRUE]]
-  stopifnot(!anyNA(collapsed$exposure_row))
-  collapsed
+  prepare_model_data(cc, lagged, outcome, subgroup, age_labels)
 }
-
-# Attach one heatwave definition and one ozone flag at a lag; keep the strata
-# where both are known on every referent day
 with_exposure <- function(collapsed, heatwave, ozone_flag, lag) {
-  d <- copy(collapsed)
-  d[, hw := lagged[[paste0(heatwave, "_lag", lag)]][exposure_row]]
-  d[, oz := lagged[[paste0(ozone_flag, "_lag", lag)]][exposure_row]]
-  complete <- d[, .(ok = !anyNA(hw) && !anyNA(oz)), by = stratum][ok == TRUE, stratum]
-  d <- d[stratum %in% complete]
-  d[, `:=`(e10 = as.integer(hw == 1 & oz == 0), e01 = as.integer(hw == 0 & oz == 1),
-           e11 = as.integer(hw == 1 & oz == 1))]
-  d
-}
-
-# Deaths by exposure category on the day of death (lagged as requested)
-category_deaths <- function(d) {
-  d[case == 1, .(deaths = sum(n_deaths), deaths_e00 = sum(n_deaths[hw == 0 & oz == 0]),
-                 deaths_e10 = sum(n_deaths[e10 == 1]), deaths_e01 = sum(n_deaths[e01 == 1]),
-                 deaths_e11 = sum(n_deaths[e11 == 1]))]
-}
-
-compound_results <- function(d) {
-  fit <- fit_conditional_logit(d, c("e10", "e01", "e11"))
-  or <- odds_ratios(fit, conf_level)
-  interaction <- additive_interaction(coef(fit), vcov(fit), conf_level)
-  # Multiplicative interaction: OR11 / (OR10 x OR01), on the log scale
-  g <- c(-1, -1, 1)
-  log_ratio <- sum(g * coef(fit))
-  se_ratio <- sqrt(drop(t(g) %*% vcov(fit) %*% g))
-  z <- stats::qnorm(1 - (1 - conf_level) / 2)
-  interaction <- rbind(interaction, data.table(
-    measure = "multiplicative ratio", estimate = exp(log_ratio),
-    low = exp(log_ratio - z * se_ratio), high = exp(log_ratio + z * se_ratio), null_value = 1
-  ))
-  list(or = or, interaction = interaction)
+  attach_compound_exposure(collapsed, lagged, heatwave, ozone_flag, lag)
 }
 
 # ---- 1. Headline definition: all outcomes, subgroups and lags ----------------
@@ -120,7 +76,7 @@ run_main <- function(i) {
         cbind(model = "ozone", odds_ratios(fit_conditional_logit(d, "oz"), conf_level)),
         cbind(model = "joint", odds_ratios(fit_conditional_logit(d, c("hw", "oz")), conf_level))
       ),
-      compound = if (estimable) compound_results(d)
+      compound = if (estimable) compound_results(d, conf_level)
     ))
     fit_warnings <- paste(unique(logged$warnings), collapse = " | ")
     or_rows <- logged$value$single
@@ -134,11 +90,7 @@ run_main <- function(i) {
   }
   list(or = rbindlist(or_list), interaction = rbindlist(interaction_list))
 }
-# The result does not depend on the number of cores.
-main_results <- parallel::mclapply(seq_len(nrow(main_jobs)), run_main,
-                                   mc.cores = parallel::detectCores())
-failed <- vapply(main_results, inherits, logical(1), what = "try-error")
-if (any(failed)) stop("Model run failed: ", main_results[[which(failed)[1]]], call. = FALSE)
+main_results <- run_parallel(seq_len(nrow(main_jobs)), run_main, "Model run")
 main_or <- rbindlist(lapply(main_results, `[[`, "or"))
 main_interaction <- rbindlist(lapply(main_results, `[[`, "interaction"))
 main_or[, `:=`(heatwave = heatwave_main, ozone = ozone_flag_main)]
@@ -163,7 +115,7 @@ run_grid <- function(i) {
     if (any(unlist(counts[, .(deaths_e10, deaths_e01, deaths_e11)]) == 0)) {
       return(cbind(job, lag = lag, counts, estimable = FALSE))
     }
-    logged <- with_warnings(compound_results(d))
+    logged <- with_warnings(compound_results(d, conf_level))
     compound <- logged$value
     or <- dcast(compound$or[, .(term, or, or_low, or_high)], . ~ term,
                 value.var = c("or", "or_low", "or_high"))[, !"."]
@@ -174,10 +126,7 @@ run_grid <- function(i) {
           fit_warnings = paste(unique(logged$warnings), collapse = " | "))
   }), fill = TRUE)
 }
-grid_results <- parallel::mclapply(seq_len(nrow(grid_jobs)), run_grid,
-                                   mc.cores = parallel::detectCores())
-failed <- vapply(grid_results, inherits, logical(1), what = "try-error")
-if (any(failed)) stop("Grid run failed: ", grid_results[[which(failed)[1]]], call. = FALSE)
+grid_results <- run_parallel(seq_len(nrow(grid_jobs)), run_grid, "Grid run")
 fwrite(rbindlist(grid_results, fill = TRUE), file.path(dir_tables, "models_grid.csv"))
 
 # ---- 3. Ozone as a continuous exposure, per 10 ppb ---------------------------

@@ -1,0 +1,5 @@
+# Text files keep Unix line endings on every system, so that a table written
+# on Windows and the same table written on macOS or Linux are the same file.
+* text=auto eol=lf
+*.png binary
+*.pdf binary

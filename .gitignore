@@ -2,6 +2,7 @@
 .Rproj.user/
 .Rhistory
 .RData
+Rplots.pdf
 .Ruserdata
 .Renviron
 
@@ -18,6 +19,10 @@ Output/Models/*
 # Machine-specific paths
 config/local.yml
 
+# Project library of renv, for those who restore the versions of renv.lock
+renv/
+.Rprofile
+
 # Quarto working files
 /.quarto/
 docs/.quarto/
@@ -29,3 +34,5 @@ __pycache__/
 # Operating system and cloud-sync files
 .DS_Store
 Icon?
+
+**/*.quarto_ipynb

@@ -21,6 +21,7 @@ tables at each step.
 
 ```{python}
 #| label: setup
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -60,6 +61,30 @@ def get_param(*keys):
     return value
 
 
+MANIFEST = pd.read_csv(ROOT / "Data" / "input_manifest.csv", dtype=str)
+VERIFIED = set()
+
+
+def verify_input(name, path):
+    """Stop unless the input is, byte for byte, the file listed in Data/input_manifest.csv."""
+    if name in VERIFIED:
+        return
+    expected = MANIFEST[MANIFEST["input"] == name]
+    if expected.empty:
+        raise KeyError(f"Input '{name}' is not listed in Data/input_manifest.csv")
+    for row in expected.itertuples():
+        file = path / row.file if path.is_dir() else path
+        if not file.exists():
+            raise FileNotFoundError(f"Input '{name}': file not found: {file}")
+        digest = hashlib.md5(usedforsecurity=False)
+        with open(file, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        if file.stat().st_size != int(row.bytes) or digest.hexdigest() != row.md5:
+            raise ValueError(f"Input '{name}' is not the file the results were produced from: {file}")
+    VERIFIED.add(name)
+
+
 def input_path(name):
     root = Path(get_param("paths", "input_root")).expanduser()
     if not root.is_absolute():
@@ -69,6 +94,7 @@ def input_path(name):
         path = root / path
     if not path.exists():
         raise FileNotFoundError(f"Input '{name}' not found: {path}")
+    verify_input(name, path)
     return path
 
 
@@ -328,7 +354,7 @@ print(f"Largest relative difference with R across odds ratios, interaction measu
 ```
 
 The estimates above are the same preliminary results discussed on the
-[R models page](05_models.html); this page only establishes that two
+[R page of the main models](deliverable_3_models.html#sec-models); this page only establishes that two
 independent implementations reach them.
 
 ## Software

@@ -1,11 +1,28 @@
 # 00_setup.R
-# Packages, folders and parameters shared by every script.
+# Packages, session settings, folders and parameters shared by every script.
 #
 # Usage: source(here::here("Code", "00_setup.R")) at the top of each script.
+
+# One thread for the linear algebra library (BLAS). Some R installations use a
+# BLAS that runs on several threads (Apple's Accelerate, OpenBLAS, MKL). The
+# long steps already run in parallel worker processes (run_parallel in
+# Code/01_functions.R), and a worker process that calls a multi-threaded BLAS
+# can crash or hang: on a Mac with R 4.5.2 and Accelerate every worker of
+# script 41 died in the matrix products of the model fits. The variables are
+# read when the library starts its threads, so they are set here, before any
+# matrix operation, and by Code/run_all.R before it starts each script.
+Sys.setenv(VECLIB_MAXIMUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", MKL_NUM_THREADS = "1")
 
 library(here)
 library(yaml)
 library(data.table)
+
+# ---- Session settings -------------------------------------------------------
+
+# Character values are sorted by the language settings of the computer unless
+# the collation is fixed. With the C collation the order of rows and of factor
+# levels is the same on every machine (accented letters sort after the others).
+invisible(Sys.setlocale("LC_COLLATE", "C"))
 
 # ---- Folders ----------------------------------------------------------------
 
@@ -45,21 +62,83 @@ get_param <- function(...) {
   value
 }
 
+# ---- Raw inputs -------------------------------------------------------------
+
 is_absolute_path <- function(path) grepl("^(/|~|[A-Za-z]:[/\\\\])", path)
 
-# Full path of a raw input declared under inputs: in the configuration.
-# Raw inputs are read-only: scripts never write into the input folder.
-input_path <- function(name) {
+# Where an input declared under inputs: in the configuration is on this
+# machine, whether or not the file is there.
+input_location <- function(name) {
   relative <- get_param("inputs", name)
   root <- get_param("paths", "input_root")
   if (!is_absolute_path(root)) root <- here::here(root)
-  path <- if (is_absolute_path(relative)) relative else file.path(root, relative)
+  if (is_absolute_path(relative)) relative else file.path(root, relative)
+}
+
+# The files the tracked results were produced from, with their size and MD5
+# checksum: one row per file, written by Code/03_input_manifest.R. For an
+# input that is a folder, `file` is the path of each file inside the folder.
+input_manifest_file <- here::here("Data", "input_manifest.csv")
+read_input_manifest <- function(file = input_manifest_file) {
+  manifest <- data.table::fread(
+    file, encoding = "UTF-8",
+    colClasses = c(input = "character", file = "character", bytes = "numeric", md5 = "character")
+  )
+  stopifnot(
+    identical(names(manifest), c("input", "file", "bytes", "md5")),
+    !anyNA(manifest), !anyDuplicated(manifest[, .(input, file)])
+  )
+  manifest
+}
+
+# Stop unless an input is, byte for byte, the one listed in the manifest.
+verify_input <- function(name, path, manifest = read_input_manifest()) {
+  expected <- manifest[input == name]
+  if (nrow(expected) == 0) {
+    stop("Input '", name, "' is not listed in Data/input_manifest.csv.", call. = FALSE)
+  }
+  files <- if (dir.exists(path)) file.path(path, expected$file) else path
+  if (length(files) != nrow(expected)) {
+    stop("Input '", name, "' is one file, but the manifest lists ", nrow(expected),
+         " files for it.", call. = FALSE)
+  }
+  absent <- files[!file.exists(files)]
+  if (length(absent) > 0) {
+    stop("Input '", name, "': file not found:\n  ", paste(absent, collapse = "\n  "),
+         "\nSee Data/README.md for where each input comes from.", call. = FALSE)
+  }
+  differs <- file.size(files) != expected$bytes
+  differs[!differs] <- unname(tools::md5sum(files[!differs])) != expected$md5[!differs]
+  differs[is.na(differs)] <- TRUE               # a file that cannot be read
+  if (any(differs)) {
+    stop(
+      "Input '", name, "' is not the file the results were produced from:\n  ",
+      paste(files[differs], collapse = "\n  "),
+      "\nThe expected sizes and checksums are in Data/input_manifest.csv. After a",
+      "\ndeliberate change of input, write a new manifest with",
+      "\n  Rscript Code/03_input_manifest.R --write",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
+# Full path of a raw input. Stops if the input is missing or is not the one of
+# the manifest; each input is checked once in an R session.
+# Raw inputs are read-only: scripts never change a file of the input folder.
+verified_inputs <- new.env()
+input_path <- function(name) {
+  path <- input_location(name)
   if (!file.exists(path)) {
     stop(
       "Input '", name, "' not found: ", path,
       "\nSee Data/README.md for where each input comes from.",
       call. = FALSE
     )
+  }
+  if (is.null(verified_inputs[[name]])) {
+    verify_input(name, path)
+    verified_inputs[[name]] <- TRUE
   }
   path
 }

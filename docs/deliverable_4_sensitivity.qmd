@@ -1,0 +1,865 @@
+---
+title: "Deliverable 4: sensitivity analyses and publication figures"
+subtitle: "Preliminary · Heatwaves, ozone and mortality in Santiago, 2009-2020"
+author: "Amaru Agüero Jiménez"
+date: today
+---
+
+Fourth deliverable of the data analysis: the sensitivity analyses and the
+figures for publication. The results are preliminary: they use working
+definitions that the principal investigator has not confirmed.
+
+::: {.no-download}
+
+| Requested | Where |
+|---|---|
+| Sensitivity analyses | [Sensitivity analyses](#sec-sensitivity) and [Lag structure: all the lags in one model](#sec-lag-structure) |
+| Publication figures, PDF and PNG | [Publication figures](#sec-publication-figures) |
+| Final technical report | Pending |
+| Documented GitHub repository | [README](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile#readme) of the repository and [R scripts](#sec-scripts) |
+
+:::
+
+The tables and the figures of this page can be downloaded: each table has an
+**Excel** button above it, and each figure a **PNG, 600 dpi** button below it.
+Each part names the scripts and the files behind its tables and figures.
+
+# Sensitivity analyses {#sec-sensitivity}
+
+*Script: `Code/40_sensitivity_analyses.R`. Tables:
+`Output/Tables/sensitivity_adjustment_or.csv`,
+`sensitivity_adjustment_interaction.csv`, `sensitivity_reference_or.csv`,
+`sensitivity_reference_interaction.csv` and `sensitivity_ozone_series.csv`.*
+
+```{r}
+#| label: setup-sensitivity
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+fmt <- function(x, digits = 2) formatC(x, format = "f", digits = digits, big.mark = ",")
+ci <- function(estimate, low, high, digits = 3) {
+  sprintf("%s (%s to %s)", fmt(estimate, digits), fmt(low, digits), fmt(high, digits))
+}
+as_numeric_columns <- function(dt, pattern) {
+  columns <- grep(pattern, names(dt), value = TRUE)
+  dt[, (columns) := lapply(.SD, as.numeric), .SDcols = columns]
+  dt[]
+}
+lag_main <- get_param("models", "lag_main")
+heatwave_main <- get_param("models", "heatwave_main")
+cutoff_main <- get_param("models", "ozone_cutoff_main")
+low_cutoff <- get_param("sensitivity", "low_ozone_cutoff")
+increments <- get_param("sensitivity", "adjustment_increments")
+temperature <- get_param("temperature_response")
+
+adjusted_or <- read_table("sensitivity_adjustment_or.csv")
+adjusted_int <- as_numeric_columns(read_table("sensitivity_adjustment_interaction.csv"),
+                                   "^(estimate|low|high)$")
+reference_or <- read_table("sensitivity_reference_or.csv")
+reference_int <- as_numeric_columns(read_table("sensitivity_reference_interaction.csv"),
+                                    "^(estimate|low|high)$")
+series_fits <- as_numeric_columns(read_table("sensitivity_ozone_series.csv"),
+                                  "^(estimate|low|high|or)_")
+
+pollutant_labels <- c(pm25 = "PM2.5", no2 = "NO2", hum = "relative humidity",
+                      temperature = "temperature")
+adjustment_label <- function(x) {
+  vapply(strsplit(x, " + ", fixed = TRUE), function(keys) {
+    if (identical(keys, "none")) "No adjustment" else paste("+", paste(pollutant_labels[keys],
+                                                                      collapse = ", "))
+  }, character(1))
+}
+adjustment_levels <- adjustment_label(unique(adjusted_or$adjustment))
+headline <- adjusted_or[outcome == "non_accidental" & lag == lag_main]
+or_of <- function(adjustment_value, term_value) {
+  headline[adjustment == adjustment_value & term == term_value, ci(or, or_low, or_high)]
+}
+all_pollutants <- paste(names(increments), collapse = " + ")
+```
+
+::: {.callout-warning}
+## Preliminary
+
+Every analysis starts from the working definitions of the
+[main models](deliverable_3_models.html#sec-models): heatwave
+`r heatwave_label(heatwave_main)` and
+ozone above the `r cutoff_main`th percentile of the municipality in the
+delivered series. One element changes at a time.
+:::
+
+## Adjustment for other pollutants and humidity
+
+The compound model is refitted with PM2.5, nitrogen dioxide and relative
+humidity as continuous covariates, each at the same lag as the exposure, one
+at a time and together. The covariates are the municipal series delivered
+with the ozone series (24-hour means, IDW). All the variants use the same
+deaths: the `r fmt(unique(headline$deaths), 0)` non-accidental deaths whose
+referent days have every covariate
+(`r fmt(unique(headline$deaths_dropped), 0)` are left out).
+
+```{r}
+#| label: fig-adjustment
+#| fig-cap: !expr 'sprintf("Odds ratios of non-accidental death by exposure category and adjustment, lag %d. Bars are 95%% confidence intervals.", lag_main)'
+#| fig-height: 4
+plot_data <- headline[term %in% names(category_labels)]
+plot_data[, `:=`(category = category_factor(term),
+                 adjusted_for = factor(adjustment_label(adjustment), levels = rev(adjustment_levels)))]
+ggplot(plot_data, aes(or, adjusted_for, colour = category)) +
+  geom_vline(xintercept = 1, colour = ink$axis) +
+  geom_pointrange(aes(xmin = or_low, xmax = or_high), linewidth = 0.6, size = 0.35) +
+  facet_wrap(~category, nrow = 1) +
+  scale_colour_manual(values = colour_compound[levels(plot_data$category)], guide = "none") +
+  labs(x = "Odds ratio", y = NULL)
+```
+
+```{r}
+#| label: tbl-adjustment
+#| tbl-cap: !expr 'sprintf("Odds ratios (95%% confidence interval) by adjustment, lag %d.", lag_main)'
+table_data <- adjusted_or[lag == lag_main & term %in% names(category_labels)]
+table_data[, `:=`(cause = cause_labels[outcome], category = category_factor(term),
+                  adjusted_for = factor(adjustment_label(adjustment), levels = adjustment_levels),
+                  value = ci(or, or_low, or_high))]
+kable(dcast(table_data, cause + adjusted_for ~ category, value.var = "value"),
+      col.names = c("Cause", "Adjusted for", levels(table_data$category)))
+```
+
+With the three covariates together the odds ratio of high-ozone-only days
+goes from `r or_of("none", "e01")` to `r or_of(all_pollutants, "e01")`, that
+of heatwave-only days from `r or_of("none", "e10")` to
+`r or_of(all_pollutants, "e10")` and that of days with both from
+`r or_of("none", "e11")` to `r or_of(all_pollutants, "e11")`. Once PM2.5,
+nitrogen dioxide and humidity are in the model, the odds ratio of high ozone
+alone cannot be told apart from 1; the odds ratios of heatwave days are
+smaller and their intervals still exclude 1.
+
+```{r}
+#| label: tbl-covariates
+#| tbl-cap: !expr 'sprintf("Odds ratios of the covariates, non-accidental mortality, lag %d.", lag_main)'
+covariates <- headline[term %in% names(increments)]
+covariates[, `:=`(adjusted_for = factor(adjustment_label(adjustment), levels = adjustment_levels),
+                  covariate = sprintf("%s, per %s %s", pollutant_labels[term], increment,
+                                      c(pm25 = "µg/m³", no2 = "ppb",
+                                        hum = "percentage points")[term]),
+                  value = ci(or, or_low, or_high))]
+kable(covariates[order(adjusted_for), .(adjusted_for, covariate, value)],
+      col.names = c("Model", "Covariate", "Odds ratio (95% CI)"))
+```
+
+### Interaction after adjustment
+
+```{r}
+#| label: fig-adjustment-reoi
+#| fig-cap: "REOI by adjustment and lag. Bars are 95% confidence intervals; zero means no additive interaction."
+#| fig-height: 5.2
+reoi <- adjusted_int[measure == "REOI"]
+reoi[, `:=`(cause = factor(cause_labels[outcome], levels = cause_labels[unique(outcome)]),
+            adjusted_for = factor(adjustment_label(adjustment), levels = rev(adjustment_levels)))]
+ggplot(reoi, aes(estimate, adjusted_for)) +
+  geom_vline(xintercept = 0, colour = ink$axis) +
+  geom_pointrange(aes(xmin = low, xmax = high), colour = ramp_blue[6], linewidth = 0.5, size = 0.3) +
+  facet_grid(cause ~ paste("Lag", lag)) +
+  scale_x_continuous(breaks = c(-0.1, 0, 0.1)) +
+  labs(x = "REOI", y = NULL)
+```
+
+```{r}
+#| label: reoi-range
+reoi_range <- reoi[, .(lowest = min(estimate), highest = max(estimate),
+                       excluding_zero = sum(low > 0 | high < 0), fits = .N)]
+```
+
+The REOI stays between `r fmt(reoi_range$lowest, 3)` and
+`r fmt(reoi_range$highest, 3)` across the `r reoi_range$fits` combinations of
+cause, lag and adjustment, and its 95% interval
+`r if (reoi_range$excluding_zero == 0) "includes zero in all of them" else sprintf("excludes zero in %d of them", reoi_range$excluding_zero)`.
+
+## Adjustment for temperature
+
+This analysis is not in the plan. The heatwave indicator is a threshold on
+temperature, and ozone is higher on hot days, so part of the odds ratio of
+high-ozone days may be temperature below the heatwave threshold. The compound
+model is refitted with the daily maximum temperature of the same day, as a
+natural cubic spline of its percentile among the warm-season days of the
+municipality (knots at the `r paste0(temperature$spline_knots, "th", collapse = " and ")`
+percentiles). Percentiles are used because the municipal temperature series
+are area means whose level differs by more than 10 °C between municipalities.
+
+```{r}
+#| label: tbl-temperature-adjustment
+#| tbl-cap: !expr 'sprintf("Compound model adjusted for the temperature of the same day, non-accidental mortality, lag %d.", lag_main)'
+temperature_rows <- headline[adjustment %in% c("none", "temperature",
+                                               paste(c(names(increments), "temperature"), collapse = " + "))]
+temperature_rows[, `:=`(adjusted_for = factor(adjustment_label(adjustment), levels = adjustment_levels),
+                        row = fifelse(term %in% names(category_labels), category_labels[term],
+                                      sub("temperature_p", "Temperature, percentile ", term)),
+                        value = ci(or, or_low, or_high))]
+temperature_rows <- temperature_rows[term %in% names(category_labels) | grepl("^temperature_p", term)]
+temperature_rows[grepl("^Temperature", row), row := paste(row, "against", temperature$reference)]
+kable(dcast(temperature_rows, factor(row, levels = unique(row)) ~ adjusted_for, value.var = "value"),
+      col.names = c("Term", levels(droplevels(temperature_rows$adjusted_for))))
+```
+
+With temperature in the model the heatwave indicator measures what heatwave
+days add beyond the temperature of the day itself, a different question from
+the one of the plan. Read that way, days with both exposures keep an odds
+ratio of `r or_of("temperature", "e11")`, heatwave-only days
+`r or_of("temperature", "e10")` and high-ozone-only days
+`r or_of("temperature", "e01")`.
+
+## Reference category: three ozone levels
+
+The plan words the reference category as "non-heatwave day and low ozone
+(at or below the 50th percentile)" and the exposed categories with ozone above
+the 75th percentile. The headline model splits the days at one cut-off, so its
+reference includes the days between the two percentiles. Here ozone has three
+levels: low (at or below the `r low_cutoff`th percentile), medium and high
+(above the `r cutoff_main`th), and the reference is no heatwave with low ozone.
+
+```{r}
+#| label: tbl-reference
+#| tbl-cap: !expr 'sprintf("Odds ratios with three ozone levels, non-accidental mortality, lag %d. Reference: no heatwave and low ozone.", lag_main)'
+r <- reference_or[outcome == "non_accidental" & lag == lag_main]
+r[, `:=`(heatwave_day = fifelse(heatwave == 1, "Heatwave", "No heatwave"),
+         level = factor(ozone_level, levels = c("low", "medium", "high")),
+         value = ci(or, or_low, or_high))]
+reference_row <- data.table(heatwave_day = "No heatwave", level = factor("low", levels = levels(r$level)),
+                            deaths = unique(r$deaths_reference), value = "1 (reference)")
+r <- rbind(r[, .(heatwave_day, level, deaths, value)], reference_row)
+setorder(r, -heatwave_day, level)
+kable(r, format.args = list(big.mark = ","),
+      col.names = c("Heatwave", "Ozone level", "Deaths", "Odds ratio (95% CI)"))
+```
+
+```{r}
+#| label: tbl-reference-reoi
+#| tbl-cap: "REOI with three ozone levels: high ozone and medium ozone, each against low ozone."
+ri <- reference_int[measure == "REOI"]
+ri[, `:=`(cause = cause_labels[outcome], value = ci(estimate, low, high))]
+kable(dcast(ri, cause + contrast ~ paste("Lag", lag), value.var = "value"),
+      col.names = c("Cause", "Contrast", paste("Lag", sort(unique(ri$lag)))))
+```
+
+```{r}
+#| label: reference-text
+h1_low <- reference_or[outcome == "non_accidental" & lag == lag_main & term == "h1_low"]
+```
+
+The conclusion does not change. Heatwave days with low ozone are few
+(`r fmt(h1_low$deaths, 0)` deaths), so their odds ratio,
+`r ci(h1_low$or, h1_low$or_low, h1_low$or_high)`, is less precise than in
+the headline model.
+
+## Ozone series
+
+The same model with each ozone series of the exposure dataset: the delivered
+series in its two versions (values within the operational period of each
+monitor, and all values), the 24-hour mean rebuilt from the validated hourly
+records and the daily maximum 8-hour mean (MDA8), each interpolated by IDW and
+by ordinary kriging. The cut-off is always the `r cutoff_main`th percentile of
+the municipality.
+
+```{r}
+#| label: fig-series
+#| fig-cap: "REOI by ozone series and lag, non-accidental mortality. Bars are 95% confidence intervals."
+#| fig-height: 4.2
+series_levels <- unique(series_fits$series_label)
+s <- series_fits[outcome == "non_accidental"]
+s[, series_label := factor(series_label, levels = rev(series_levels))]
+ggplot(s, aes(estimate_reoi, series_label)) +
+  geom_vline(xintercept = 0, colour = ink$axis) +
+  geom_pointrange(aes(xmin = low_reoi, xmax = high_reoi), colour = ramp_blue[6],
+                  linewidth = 0.5, size = 0.3) +
+  facet_wrap(~paste("Lag", lag), nrow = 1) +
+  labs(x = "REOI", y = NULL)
+```
+
+```{r}
+#| label: tbl-series
+#| tbl-cap: !expr 'sprintf("Odds ratios and REOI (95%% confidence interval) by ozone series, non-accidental mortality, lag %d.", lag_main)'
+st <- series_fits[outcome == "non_accidental" & lag == lag_main,
+             .(series_label, deaths_e11,
+               e01 = ci(or_e01, or_low_e01, or_high_e01), e10 = ci(or_e10, or_low_e10, or_high_e10),
+               e11 = ci(or_e11, or_low_e11, or_high_e11),
+               reoi = ci(estimate_reoi, low_reoi, high_reoi))]
+kable(st, format.args = list(big.mark = ","),
+      col.names = c("Ozone series", "Deaths on days with both", category_labels[["e01"]],
+                    category_labels[["e10"]], category_labels[["e11"]], "REOI"))
+```
+
+```{r}
+#| label: series-range
+series_range <- series_fits[, .(lowest = min(estimate_reoi), highest = max(estimate_reoi),
+                           excluding_zero = sum(low_reoi > 0 | high_reoi < 0), fits = .N)]
+```
+
+Across the `r series_range$fits` fits (two causes, eight series, four lags) the
+REOI ranges from `r fmt(series_range$lowest, 3)` to `r fmt(series_range$highest, 3)`
+and its 95% interval
+`r if (series_range$excluding_zero == 0) "includes zero in all of them" else sprintf("excludes zero in %d of them", series_range$excluding_zero)`. The
+choice between the delivered series and the series rebuilt from the hourly
+records, or between IDW and kriging, changes which days are classified as
+high ozone
+([validation of the ozone exposure](deliverable_1_exposure.html#sec-ozone-validation))
+but not the answer to the interaction question.
+
+## Heatwave and ozone definitions
+
+The grid of the 15 heatwave definitions and the ozone cut-offs is in
+[deliverable 3](deliverable_3_models.html#sec-grid). The lags 2 and 3 of that
+grid, where part of the cells show a positive REOI, are examined in the
+[lag structure](#sec-lag-structure) below.
+
+# Lag structure: all the lags in one model {#sec-lag-structure}
+
+*Script: `Code/41_distributed_lag_models.R`. Tables:
+`Output/Tables/lags_compound_or.csv`, `lags_compound_interaction.csv`,
+`lags_grid.csv`, `lags_temperature_or.csv`, `lags_temperature_curve.csv` and
+`lags_ozone_or.csv`. For comparison: `models_main_or.csv` and `models_grid.csv`
+of `Code/30_models_main.R`.*
+
+```{r}
+#| label: setup-lag-structure
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+fmt <- function(x, digits = 2) formatC(x, format = "f", digits = digits, big.mark = ",")
+ci <- function(estimate, low, high, digits = 3) {
+  sprintf("%s (%s to %s)", fmt(estimate, digits), fmt(low, digits), fmt(high, digits))
+}
+as_numeric_columns <- function(dt, pattern) {
+  columns <- grep(pattern, names(dt), value = TRUE)
+  dt[, (columns) := lapply(.SD, as.numeric), .SDcols = columns]
+  dt[]
+}
+lags <- unlist(get_param("design", "lags_days"))
+heatwave_main <- get_param("models", "heatwave_main")
+cutoff_main <- get_param("models", "ozone_cutoff_main")
+ozone_series <- paste0(get_param("air_pollution", "ozone_series_main"), "_",
+                       get_param("air_pollution", "interpolation_method_main"))
+ozone_flag_main <- paste0(ozone_series, "_gt_p", cutoff_main)
+temperature <- get_param("temperature_response")
+ozone_increment <- get_param("distributed_lags", "ozone_increment_ppb")
+
+main_or <- read_table("models_main_or.csv")
+lag_or <- read_table("lags_compound_or.csv")
+lag_int <- as_numeric_columns(read_table("lags_compound_interaction.csv"), "^(estimate|low|high)$")
+lag_grid <- as_numeric_columns(read_table("lags_grid.csv"), "^(estimate|low|high|or)_")
+single_grid <- as_numeric_columns(read_table("models_grid.csv"), "^(estimate|low|high|or)_")
+thresholds <- read_table("temperature_thresholds.csv")
+temperature_or <- read_table("lags_temperature_or.csv")
+curve <- read_table("lags_temperature_curve.csv")
+ozone_or <- read_table("lags_ozone_or.csv")
+colour_model <- c("One lag per model" = "#2a78d6", "All lags in one model" = "#eb6834")
+lag_levels <- c(lags, "cumulative")
+lag_factor <- function(x) factor(x, levels = lag_levels, labels = c(lags, "Cumulative"))
+```
+
+::: {.callout-warning}
+## Preliminary
+
+Working definitions as in the
+[main models](deliverable_3_models.html#sec-models): heatwave
+`r heatwave_label(heatwave_main)`, ozone above the `r cutoff_main`th percentile
+of the municipality in the delivered series. The form in which temperature
+enters the models of this section is a proposal, marked `TO CONFIRM` in
+`config/config.yml`.
+:::
+
+## Why
+
+The models of deliverable 3 and of the sensitivity analyses take one lag at a
+time: the exposure of the day of death, or of one, two or three days before.
+Exposures of consecutive days are not independent. A heatwave lasts at least
+two days by definition and
+ozone episodes last several days, so the odds ratio of the exposure two days
+before also carries the effect of the exposure one day before and on the day.
+
+```{r}
+#| label: tbl-persistence
+#| tbl-cap: "Persistence of the exposure: of the municipality-days in each state, share (%) in the same state one, two and three days before. Referent days of the case-crossover dataset."
+columns <- c(paste0(heatwave_main, "_lag", lags), paste0(ozone_flag_main, "_lag", lags))
+x <- fread(derived_path("exposure_lagged.csv"), select = columns)
+hw <- function(k) x[[paste0(heatwave_main, "_lag", k)]]
+oz <- function(k) x[[paste0(ozone_flag_main, "_lag", k)]]
+persistence <- rbindlist(lapply(setdiff(lags, 0), function(k) data.table(
+  days_before = k,
+  heatwave = 100 * mean(hw(k)[hw(0) == 1] == 1, na.rm = TRUE),
+  high_ozone = 100 * mean(oz(k)[oz(0) == 1] == 1, na.rm = TRUE),
+  both = 100 * mean((hw(k) == 1 & oz(k) == 1)[hw(0) == 1 & oz(0) == 1], na.rm = TRUE)
+)))
+kable(persistence, digits = 0,
+      col.names = c("Days before", "Heatwave", "High ozone", "Heatwave and high ozone"))
+```
+
+In this section the exposures of the four lags enter the same model, with one
+coefficient per lag and no constraint on their shape. Each lag-specific odds
+ratio is then adjusted for the other lags, and the sum of the coefficients
+gives a cumulative odds ratio over the window.
+
+## Exposure categories
+
+```{r}
+#| label: fig-compound
+#| fig-cap: "Odds ratios of non-accidental death by exposure category and lag: one lag per model (deliverable 3) and all the lags in one model. Bars are 95% confidence intervals."
+#| fig-height: 4.2
+single <- main_or[outcome == "non_accidental" & subgroup == "all" & model == "compound",
+                  .(category = term, lag = as.character(lag), or, or_low, or_high,
+                    model = "One lag per model")]
+together <- lag_or[outcome == "non_accidental", .(category, lag, or, or_low, or_high,
+                                                 model = "All lags in one model")]
+both <- rbind(single, together)
+both[, `:=`(category = category_factor(category), lag = lag_factor(lag),
+            model = factor(model, levels = names(colour_model)))]
+ggplot(both, aes(lag, or, colour = model)) +
+  geom_hline(yintercept = 1, colour = ink$axis) +
+  geom_pointrange(aes(ymin = or_low, ymax = or_high), position = position_dodge(width = 0.5),
+                  linewidth = 0.6, size = 0.3) +
+  facet_wrap(~category, nrow = 1) +
+  scale_colour_manual(values = colour_model) +
+  labs(x = "Lag (days)", y = "Odds ratio", colour = NULL)
+```
+
+```{r}
+#| label: tbl-compound
+#| tbl-cap: "Odds ratios (95% confidence interval) with all the lags in one model."
+t1 <- copy(lag_or)
+t1[, `:=`(cause = cause_labels[outcome], category = category_factor(category),
+          lag = lag_factor(lag), value = ci(or, or_low, or_high))]
+kable(dcast(t1, cause + lag ~ category, value.var = "value"),
+      col.names = c("Cause", "Lag", levels(t1$category)))
+```
+
+```{r}
+#| label: compound-text
+na <- lag_or[outcome == "non_accidental"]
+pick <- function(category_value, lag_value) {
+  na[category == category_value & lag == lag_value, ci(or, or_low, or_high)]
+}
+later <- na[lag %in% c("2", "3")]
+```
+
+With the four lags together the associations sit on the day of exposure and
+the day after. For days with both exposures the odds ratio is
+`r pick("e11", "0")` at lag 0 and `r pick("e11", "1")` at lag 1; at lags 2
+and 3 the odds ratios of the three categories lie between
+`r fmt(min(later$or), 3)` and `r fmt(max(later$or), 3)`. With these definitions,
+the associations that the single-lag models show at lags 2 and 3 are the
+exposure of the days before, carried by its persistence. Over the four days
+the cumulative odds
+ratio is `r pick("e11", "cumulative")` for days with both exposures,
+`r pick("e10", "cumulative")` for heatwave only and
+`r pick("e01", "cumulative")` for high ozone only. A cumulative odds ratio
+compares four consecutive days in the category with four consecutive days
+with neither exposure.
+
+### Interaction over the window
+
+```{r}
+#| label: tbl-compound-interaction
+#| tbl-cap: "Additive and multiplicative interaction computed from the cumulative odds ratios (lags 0 to 3 together). REOI and AP have null value 0; S and the multiplicative ratio have null value 1."
+t2 <- copy(lag_int)
+# The causes are the columns: a factor fixes their order, and the header is
+# taken from the reshaped table itself
+t2[, `:=`(cause = factor(cause_labels[outcome], levels = cause_labels[unique(outcome)]),
+          measure = factor(measure, levels = unique(measure)),
+          value = ifelse(measure == "S" & (is.na(low) | high / low > 1e3),
+                         paste(fmt(estimate, 3), "(interval not informative)"),
+                         ci(estimate, low, high)))]
+wide <- dcast(t2, measure ~ cause, value.var = "value")
+kable(wide, col.names = c("Measure", names(wide)[-1]))
+```
+
+```{r}
+#| label: interaction-text
+reoi <- lag_int[measure == "REOI"]
+```
+
+The cumulative REOI is `r reoi[outcome == "non_accidental", ci(estimate, low, high)]`
+for non-accidental mortality and
+`r reoi[outcome == "cardiopulmonary", ci(estimate, low, high)]` for
+cardiopulmonary mortality. Both intervals include zero: with the working
+definitions there is no additive interaction at any lag or over the window.
+
+### Across the definitions
+
+The same model for the 15 heatwave definitions and the three cut-offs of the
+delivered ozone series, fitted twice: as above, and with the temperature of
+every lag in the model (the spline of the next section), to see whether an
+interaction between the two indicators is temperature that the heatwave
+threshold leaves out. The REOI of each lag comes from the three coefficients
+of that lag; the cumulative REOI from the cumulative odds ratios.
+
+```{r}
+#| label: fig-grid
+#| fig-cap: "REOI for non-accidental mortality from the model with all the lags, by lag and cumulative, across heatwave definitions (rows) and ozone cut-offs (columns), without and with temperature in the model. A dot marks the cells whose 95% interval excludes zero. Colour scale limited to plus or minus 0.15."
+#| fig-height: 12.5
+#| fig-width: 9.5
+adjustment_labels <- c(none = "All lags in one model", temperature = "All lags and temperature")
+g <- lag_grid[outcome == "non_accidental" & estimable == TRUE]
+g[, `:=`(cutoff = paste0("> P", sub(".*_gt_p", "", ozone)),
+         definition = factor(heatwave_label(heatwave),
+                             levels = rev(heatwave_label(unique(lag_grid$heatwave)))),
+         panel = factor(lag, levels = lag_levels, labels = c(paste("Lag", lags), "Cumulative")),
+         fitted = factor(adjustment_labels[adjustment], levels = adjustment_labels),
+         excludes_zero = low_reoi > 0 | high_reoi < 0)]
+limit <- 0.15
+ggplot(g, aes(cutoff, definition, fill = estimate_reoi)) +
+  geom_tile(colour = ink$surface, linewidth = 0.8) +
+  geom_point(data = g[excludes_zero == TRUE], size = 1.2, colour = ink$primary) +
+  facet_grid(fitted ~ panel) +
+  scale_fill_gradient2(low = diverging[["low"]], mid = diverging[["mid"]], high = diverging[["high"]],
+                       midpoint = 0, limits = c(-limit, limit), oob = scales::squish, name = "REOI") +
+  labs(x = "Ozone cut-off (municipality percentile)", y = NULL) +
+  theme(panel.grid.major = element_blank(), legend.position = "right",
+        legend.justification = "center")
+```
+
+```{r}
+#| label: tbl-grid
+#| tbl-cap: "Cells of the grid (45 per cause) by the sign of the REOI and by whether its 95% interval lies above or below zero."
+model_levels <- c("One lag per model", adjustment_labels)
+count_cells <- function(dt, label) {
+  dt[estimable == TRUE, .(model = label, positive = sum(estimate_reoi > 0), above = sum(low_reoi > 0),
+                          below = sum(high_reoi < 0), median_reoi = median(estimate_reoi)),
+     by = .(outcome, lag)]
+}
+one_lag <- single_grid[grepl(paste0("^", ozone_series, "_gt_p"), ozone) &
+                         outcome %in% unique(lag_grid$outcome)]
+one_lag[, lag := as.character(lag)]
+cells <- rbind(count_cells(one_lag, "One lag per model"),
+               count_cells(lag_grid[adjustment == "none"], adjustment_labels[["none"]]),
+               count_cells(lag_grid[adjustment == "temperature"], adjustment_labels[["temperature"]]))
+cells[, `:=`(cause = factor(cause_labels[outcome], levels = cause_labels[unique(outcome)]),
+             lag = lag_factor(lag), model = factor(model, levels = model_levels))]
+setorder(cells, cause, lag, model)
+kable(cells[, .(cause, lag, model, positive, above, below, median_reoi)],
+      digits = c(0, 0, 0, 0, 0, 0, 3),
+      col.names = c("Cause", "Lag", "Model", "REOI above 0", "Interval above 0",
+                    "Interval below 0", "Median REOI"))
+```
+
+```{r}
+#| label: tbl-example
+#| tbl-cap: "Odds ratios by lag in the cell with the clearest positive cumulative REOI, non-accidental mortality, all the lags in one model."
+unadjusted <- lag_grid[outcome == "non_accidental" & estimable == TRUE & adjustment == "none"]
+example <- unadjusted[lag == "cumulative"][which.max(low_reoi)]
+example_rows <- unadjusted[heatwave == example$heatwave & ozone == example$ozone]
+example_rows[, lag := lag_factor(lag)]
+setorder(example_rows, lag)
+kable(example_rows[, .(lag, ci(or_e01, or_low_e01, or_high_e01), ci(or_e10, or_low_e10, or_high_e10),
+                       ci(or_e11, or_low_e11, or_high_e11), ci(estimate_reoi, low_reoi, high_reoi))],
+      col.names = c("Lag", category_labels[["e01"]], category_labels[["e10"]],
+                    category_labels[["e11"]], "REOI"))
+```
+
+```{r}
+#| label: grid-text
+n_cells <- function(model_value, lag_value, column) {
+  cells[outcome == "non_accidental" & model == model_value & lag == lag_factor(lag_value)][[column]]
+}
+all_lags <- adjustment_labels[["none"]]
+with_temperature <- adjustment_labels[["temperature"]]
+cumulative_cells <- unadjusted[lag == "cumulative" & low_reoi > 0]
+cumulative_cells[, threshold := sub("^hw_(.*)_[0-9]d$", "\\1", heatwave)]
+working <- function(adjustment_value) {
+  lag_grid[outcome == "non_accidental" & heatwave == heatwave_main & ozone == ozone_flag_main &
+             lag == "cumulative" & adjustment == adjustment_value, ci(estimate_reoi, low_reoi, high_reoi)]
+}
+```
+
+Fitting the lags together removes about half of the cells with a positive
+interval at lags 2 and 3. For non-accidental mortality the single-lag models
+give `r n_cells("One lag per model", "2", "above")` and
+`r n_cells("One lag per model", "3", "above")` of 45 cells above zero at
+lags 2 and 3; the model with all the lags gives
+`r n_cells(all_lags, "2", "above")` and `r n_cells(all_lags, "3", "above")`,
+and with temperature in the model `r n_cells(with_temperature, "2", "above")`
+and `r n_cells(with_temperature, "3", "above")`.
+
+Over the window the interaction does not disappear. The cumulative REOI is
+positive in `r n_cells(all_lags, "cumulative", "positive")` of the 45 cells
+(`r n_cells(with_temperature, "cumulative", "positive")` with temperature in
+the model) and its interval lies above zero in
+`r n_cells(all_lags, "cumulative", "above")`
+(`r n_cells(with_temperature, "cumulative", "above")`). Of the
+`r nrow(cumulative_cells)` cells above zero without temperature,
+`r cumulative_cells[threshold %in% c("30c", "ehf"), .N]` use the 30 °C or the
+EHF definitions, which have the most heatwave days. With the working
+definition the cumulative REOI is `r working("none")`, and
+`r working("temperature")` with temperature in the model: the same sign, with
+an interval that includes zero.
+
+The table shows the pattern in the cell
+`r heatwave_label(example$heatwave)` with ozone above the
+`r sub(".*_gt_p", "", example$ozone)`th percentile. On the day of exposure
+the three categories have similar odds ratios and the REOI is close to zero.
+Two and three days later the odds ratios of the days with one exposure are
+below 1, most clearly for high ozone only, as if part of those deaths had been
+brought forward by a few days, and those of the days with both are not. Over
+the window the days with both exposures keep an excess that the days with one
+exposure do not.
+
+This is an exploratory result. It comes from
+`r nrow(lag_grid[estimable == TRUE])` intervals without correction for
+multiple comparisons, on definitions that share most of their days, so the
+cells are not independent pieces of evidence, and it was not a hypothesis set
+before looking at the data. On the day of exposure, where the associations
+are strongest, there is no interaction; the positive values come from lags at
+which the odds ratios are close to 1. It does not go away with temperature in
+the model. Whether it can be reported as a finding depends on a primary
+heatwave definition and lag window fixed in advance.
+
+## Temperature
+
+A distributed lag non-linear model (package `dlnm`) of the daily maximum
+temperature, to see the association along the whole temperature scale instead
+of at one threshold.
+
+```{r}
+#| label: thresholds
+p95 <- thresholds[season_rule == get_param("temperature", "percentile_season")]
+```
+
+- **Scale.** The municipal series are area means: the 95th percentile of the
+  daily maximum ranges from `r fmt(min(p95$p95), 1)` °C
+  (`r p95[which.min(p95), municipality]`, which reaches into the Andes) to
+  `r fmt(max(p95$p95), 1)` °C (`r p95[which.max(p95), municipality]`). A common
+  curve in °C would compare places, not days. Temperature enters as the
+  percentile of the day among the warm-season days of its municipality in
+  the study years.
+- **Shape.** Natural cubic spline with internal knots at the
+  `r paste0(temperature$spline_knots, "th", collapse = " and ")` percentiles.
+- **Lags.** `r min(lags)` to `r max(lags)`, one coefficient per lag for each
+  spline term.
+- **Odds ratios** are relative to the `r temperature$reference`th percentile.
+
+```{r}
+#| label: fig-curve
+#| fig-cap: !expr 'sprintf("Cumulative odds ratio of death over lags %d to %d along the temperature scale, relative to the %dth percentile. Bands are 95%% confidence intervals.", min(lags), max(lags), temperature$reference)'
+#| fig-height: 3.8
+c1 <- curve[model == "temperature"]
+c1[, cause := factor(cause_labels[outcome], levels = cause_labels[unique(outcome)])]
+ggplot(c1, aes(percentile, or)) +
+  geom_hline(yintercept = 1, colour = ink$axis) +
+  geom_ribbon(aes(ymin = or_low, ymax = or_high), fill = ramp_blue[2], alpha = 0.6) +
+  geom_line(colour = ramp_blue[6], linewidth = 0.9) +
+  facet_wrap(~cause) +
+  scale_x_continuous(breaks = c(1, 25, 50, 75, 90, 99)) +
+  labs(x = "Daily maximum temperature (percentile of the municipality, warm season)",
+       y = "Cumulative odds ratio")
+```
+
+```{r}
+#| label: tbl-temperature-lags
+#| tbl-cap: !expr 'sprintf("Odds ratios (95%% confidence interval) of temperature percentiles against the %dth percentile, by lag and cumulative.", temperature$reference)'
+t3 <- temperature_or[model == "temperature"]
+t3[, `:=`(cause = cause_labels[outcome], lag = lag_factor(lag), value = ci(or, or_low, or_high))]
+kable(dcast(t3, cause + lag ~ paste0("P", percentile), value.var = "value"),
+      col.names = c("Cause", "Lag", paste0("P", sort(unique(t3$percentile)))))
+```
+
+```{r}
+#| label: temperature-text
+cumulative <- temperature_or[model == "temperature" & lag == "cumulative" & outcome == "non_accidental"]
+cum <- function(p) cumulative[percentile == p, ci(or, or_low, or_high)]
+low_side <- curve[model == "temperature" & outcome == "non_accidental" & percentile < temperature$reference]
+```
+
+Below the median the curve is flat: the cumulative odds ratio stays between
+`r fmt(min(low_side$or), 3)` and `r fmt(max(low_side$or), 3)`. Above it the
+odds of death rise with temperature, to `r cum(90)` at the 90th percentile,
+`r cum(95)` at the 95th and `r cum(99)` at the 99th for non-accidental
+mortality. As with the categories, the association is in lags 0 and 1.
+
+## Ozone as a continuous exposure
+
+Ozone per `r ozone_increment` ppb of the delivered 24-hour mean, with one
+coefficient per lag, alone and in the same model as the temperature
+cross-basis.
+
+```{r}
+#| label: fig-ozone
+#| fig-cap: !expr 'sprintf("Odds ratio of death per %d ppb of ozone by lag and cumulative, without and with temperature in the model. Bars are 95%% confidence intervals.", ozone_increment)'
+#| fig-height: 3.8
+o1 <- copy(ozone_or)
+colour_adjust <- c("Ozone alone" = "#2a78d6", "Ozone and temperature" = "#eb6834")
+o1[, `:=`(cause = factor(cause_labels[outcome], levels = cause_labels[unique(outcome)]),
+          lag = lag_factor(lag),
+          model = factor(fifelse(model == "ozone", "Ozone alone", "Ozone and temperature"),
+                         levels = names(colour_adjust)))]
+ggplot(o1, aes(lag, or, colour = model)) +
+  geom_hline(yintercept = 1, colour = ink$axis) +
+  geom_pointrange(aes(ymin = or_low, ymax = or_high), position = position_dodge(width = 0.5),
+                  linewidth = 0.6, size = 0.3) +
+  facet_wrap(~cause) +
+  scale_colour_manual(values = colour_adjust) +
+  labs(x = "Lag (days)", y = sprintf("Odds ratio per %d ppb", ozone_increment), colour = NULL)
+```
+
+```{r}
+#| label: tbl-ozone
+#| tbl-cap: !expr 'sprintf("Odds ratio per %d ppb of ozone (95%% confidence interval).", ozone_increment)'
+o1[, value := ci(or, or_low, or_high)]
+kable(dcast(o1, cause + lag ~ model, value.var = "value"),
+      col.names = c("Cause", "Lag", levels(o1$model)))
+```
+
+```{r}
+#| label: ozone-text
+oz_cum <- function(outcome_value, model_value) {
+  ozone_or[outcome == outcome_value & model == model_value & lag == "cumulative",
+           ci(or, or_low, or_high)]
+}
+temp_with_ozone <- temperature_or[model == "temperature + ozone" & lag == "cumulative" &
+                                    outcome == "non_accidental" & percentile == 95,
+                                  ci(or, or_low, or_high)]
+```
+
+The cumulative odds ratio per `r ozone_increment` ppb for non-accidental
+mortality goes from `r oz_cum("non_accidental", "ozone")` to
+`r oz_cum("non_accidental", "temperature + ozone")` when temperature is in the
+model, and for cardiopulmonary mortality from
+`r oz_cum("cardiopulmonary", "ozone")` to
+`r oz_cum("cardiopulmonary", "temperature + ozone")`. Most of the association
+of the 24-hour ozone mean with mortality is shared with temperature. The
+reverse does not happen: with ozone in the model the cumulative odds ratio of
+the 95th temperature percentile is `r temp_with_ozone`, against `r cum(95)`
+without it.
+
+## What this adds
+
+1. The associations with heatwaves and high ozone are on the day of exposure
+   and the day after. Lags 2 and 3 taken alone mix them with the exposure of
+   the days before.
+2. With the working definitions the additive interaction is null at every
+   lag, and over the window its interval includes zero.
+3. Over the four-day window the REOI is positive in most combinations of
+   definitions, and its interval excludes zero for those with the most
+   heatwave days, with or without temperature in the model. It is exploratory
+   and needs a primary definition and lag window fixed in advance.
+4. Temperature has a clear association with mortality above the median of the
+   warm season, rising up to the hottest days.
+5. The association of the 24-hour ozone mean is largely shared with
+   temperature. This bears on the secondary aim of the plan, the mediation of
+   the heat effect by ozone, which has not been analysed here: an ozone
+   association this small once temperature is accounted for leaves little
+   room for a large mediated share.
+
+These readings rest on the delivered 24-hour ozone series. The
+[validation of the ozone exposure](deliverable_1_exposure.html#sec-ozone-validation)
+shows that it follows the hourly records less well on the days with most
+ozone; the same models can be run on the rebuilt series by changing
+`ozone_series_main` in the configuration.
+
+## Method checks
+
+*Script: `tests/test_methods.R`, run here and at the start of every run of
+`Code/run_all.R`.*
+
+```{r}
+#| label: method-checks
+#| code-summary: "Run tests/test_methods.R"
+checks <- system2(file.path(R.home("bin"), "Rscript"),
+                  shQuote(here::here("tests", "test_methods.R")), stdout = TRUE, stderr = TRUE)
+if (!is.null(attr(checks, "status"))) stop(paste(checks, collapse = "\n"))
+cat(grep("distributed lags|dlnm|cumulative|all lags|combine_coefficients|local_percentile|^All",
+         checks, value = TRUE), sep = "\n")
+```
+
+The checks simulate deaths with an effect at lags 0 and 1 only: the model with
+all the lags recovers it, and the single-lag model at lag 2 reports an
+association that is not there. They also confirm that the cross-basis of
+`dlnm` and a spline built by hand for each lag give the same cumulative odds
+ratios.
+
+# Publication figures {#sec-publication-figures}
+
+*Script: `Code/50_figures_publication.R`. Figures: the files `figure_*` of
+`Output/Figures`, each as PDF and as PNG.*
+
+`Code/50_figures_publication.R` draws the figures from the saved tables, as
+PDF and as PNG at `r get_param("figures", "png_dpi")` dpi, in `Output/Figures`. The
+button under each figure saves the PNG file; the PDF files are in
+[`Output/Figures`](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Output/Figures) of the repository.
+
+```{r}
+#| label: tbl-figures
+#| tbl-cap: "Files written by the figures script."
+figure_content <- c(
+  figure_1_odds_ratios_by_lag = "Odds ratios of the exposure categories by lag",
+  figure_2_reoi_by_cause = "Forest plot of the REOI by cause of death",
+  figure_3_interaction_matrix = "REOI across heatwave definitions and ozone cut-offs, non-accidental",
+  figure_4_subgroups = "Age groups and sex",
+  figure_5_attributable_deaths = "Excess deaths by year and by municipality",
+  figure_6_lag_structure = "Single-lag and distributed-lag estimates",
+  figure_7_adjustment = "Multi-pollutant adjustment",
+  figure_s1_interaction_matrix_cardiopulmonary = "REOI across definitions, cardiopulmonary",
+  figure_s2_interaction_matrix_all_lags = "REOI across definitions, all the lags in one model",
+  figure_s3_interaction_matrix_all_lags_temperature = "The same, with temperature in the model"
+)
+# Every figure the script wrote is in the list, and every figure of the list was written
+written <- sub("\\.pdf$", "", sort(list.files(dir_figures, pattern = "^figure_.*\\.pdf$")))
+stopifnot(setequal(written, names(figure_content)),
+          file.exists(file.path(dir_figures, paste0(names(figure_content), ".png"))))
+kable(data.table(file = sprintf("`%s.pdf` and `.png`", names(figure_content)), content = unname(figure_content)),
+      col.names = c("File", "Content"))
+```
+
+```{r}
+#| label: fig-publication
+#| fig-cap: !expr 'sprintf("%s. File `%s.png`.", figure_content, names(figure_content))'
+#| out-width: "100%"
+knitr::include_graphics(file.path(dir_figures, paste0(names(figure_content), ".png")))
+```
+
+# R scripts {#sec-scripts}
+
+The scripts are in [`Code/`](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code) of the repository. They are
+not executed when this page is rendered: `Code/run_all.R` runs them in order
+and this page reads their outputs. The code of each one is folded below.
+
+::: {.no-download}
+
+| Script | Purpose |
+|---|---|
+| `Code/40_sensitivity_analyses.R` | Adjustment for PM2.5, NO2, humidity and temperature; three ozone levels; alternative ozone series. |
+| `Code/41_distributed_lag_models.R` | All the lags in one model: exposure categories (also over the grid of definitions), temperature (dlnm) and ozone. |
+| `Code/50_figures_publication.R` | Publication figures in PDF and PNG, drawn from the result tables. |
+
+:::
+
+```{r}
+#| eval: false
+#| file: ../Code/40_sensitivity_analyses.R
+#| code-summary: "Code/40_sensitivity_analyses.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/41_distributed_lag_models.R
+#| code-summary: "Code/41_distributed_lag_models.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/50_figures_publication.R
+#| code-summary: "Code/50_figures_publication.R"
+```
+
+```{r}
+#| label: session
+#| code-summary: "Session information"
+sessionInfo()
+```

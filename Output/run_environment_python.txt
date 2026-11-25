@@ -1,0 +1,18 @@
+Software of the machine that last rendered the Python reports (Code/run_python.py)
+
+Python: 3.13.18 (the Python that ran Code/run_python.py)
+System: Linux x86_64
+Quarto: 1.6.42
+
+Python packages (version here, version of requirements.txt when it differs):
+  numpy             2.5.3
+  pandas            3.0.5
+  scipy             1.18.1
+  pyyaml            6.0.3
+  matplotlib        3.11.2
+  geopandas         1.2.0
+  jinja2            3.1.6
+  ipykernel         7.4.0
+  matplotlib-inline 0.2.2
+  nbclient          0.11.0
+  nbformat          5.11.1

@@ -8,7 +8,8 @@
 # day-to-day course of ozone over the city, which is what this script uses.
 #
 # Inputs
-#   inputs$cams_eac4_dir                    monthly files of 3-hourly values by cell
+#   inputs$cams_eac4_dir                    monthly files of 3-hourly values by cell;
+#                                           the months read are those of cams_month_files()
 #   Data/Derived/interpolation_points.csv   (script 15)
 #   Data/Derived/exposure_2009_2020.csv     (script 13)
 # Outputs
@@ -43,8 +44,10 @@ lonlat <- sf::st_coordinates(sf::st_transform(
 ))
 targets[, `:=`(lon = lonlat[, 1], lat = lonlat[, 2])]
 
-files <- list.files(input_path("cams_eac4_dir"), pattern = "\\.nc$", full.names = TRUE)
-stopifnot(length(files) > 0)
+# The months that hold every record of the local days of the study years,
+# whatever else the folder contains
+files <- file.path(input_path("cams_eac4_dir"), cams_month_files())
+stopifnot(length(files) > 0, all(file.exists(files)))
 first <- ncdf4::nc_open(files[1])
 cells <- data.table(pixel = seq_along(ncdf4::ncvar_get(first, "pixel_id")),
                     pixel_id = as.vector(ncdf4::ncvar_get(first, "pixel_id")),
@@ -95,7 +98,12 @@ cams_daily <- cams[, .(
   cams_mean24 = mean(o3_ppb),
   cams_afternoon = mean(o3_ppb[hour %in% afternoon])
 ), by = .(pixel_id, date)]
-cams_daily <- cams_daily[records == 8]        # complete local days only
+# Local days of the study years: each needs its eight 3-hourly records, so
+# that no day drops out of the comparison unnoticed
+cams_daily <- cams_daily[date %in% study_dates()]
+setorder(cams_daily, pixel_id, date)
+stopifnot(nrow(cams_daily) == nrow(used) * length(study_dates()),
+          all(cams_daily$records == 8))
 fwrite(cams_daily, file.path(dir_derived, "cams_ozone_daily.csv"))
 
 # ---- 3. City-wide daily series and correlations -----------------------------

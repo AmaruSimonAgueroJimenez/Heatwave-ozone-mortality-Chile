@@ -1,0 +1,2449 @@
+---
+title: "Deliverable 1: data verification, quality control and maps of spatio-temporal trends"
+subtitle: "Heatwaves, ozone and mortality in Santiago, 2009-2020"
+author: "Amaru Agüero Jiménez"
+date: today
+---
+
+First deliverable of the data analysis: the methodology behind the exposure
+data, their verification and quality control, the dataset with the exposure
+variables for 2009-2020, and the municipal maps and time series of single and
+compound exposure.
+
+::: {.no-download}
+
+| Requested | Where |
+|---|---|
+| Data verification and quality control | [Data verification and quality control](#sec-quality-control) and [Validation of the ozone exposure](#sec-ozone-validation) |
+| Dataset with the exposure variables, 2009-2020 | [Exposure dataset, 2009-2020](#sec-exposure-dataset) |
+| Municipal maps and time series of single and compound exposure | [Municipal maps and time series of single and compound exposure](#sec-maps-trends), with the [series of every municipality and of their mean](#sec-series-municipalities) |
+| R scripts on GitHub | [R scripts](#sec-scripts) |
+
+:::
+
+Where the data come from and how every variable is defined is in the
+[Methodology](#sec-methodology), which opens the page. Every section names the
+scripts and the files behind its tables and figures. The decisions that this
+deliverable leaves to the principal investigator are in
+[Points to settle](#sec-points-to-settle).
+
+The tables and the figures of this page can be downloaded: each table has an
+**Excel** button above it, and each figure a **PNG, 600 dpi** button below it.
+
+# Methodology {#sec-methodology}
+
+```{r}
+#| label: setup-methodology
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+fmt <- function(x, digits = 0) formatC(x, format = "f", digits = digits, big.mark = ",")
+
+# Every number quoted in the methodology is computed here, from the
+# configuration, the inputs and the outputs of the scripts
+method <- list()
+method$municipalities <- study_municipalities()
+method$years <- get_param("study", "years")
+method$lags <- unlist(get_param("design", "lags_days"))
+method$lag_buffer <- max(method$lags)
+method$reference_years <- get_param("temperature", "percentile_reference_years")
+method$percentiles <- unlist(get_param("temperature", "percentile_thresholds"))
+method$durations <- unlist(get_param("temperature", "min_consecutive_days"))
+method$absolute_c <- get_param("temperature", "absolute_threshold_celsius")
+method$ehf_percentile <- get_param("temperature", "ehf_reference_percentile")
+method$ehf_days <- get_param("temperature", "ehf_acclimatisation_days")
+method$heatwave_main <- get_param("models", "heatwave_main")
+method$ozone_main <- paste0(get_param("air_pollution", "ozone_series_main"), "_",
+                            get_param("air_pollution", "interpolation_method_main"))
+method$cutoff_main <- get_param("models", "ozone_cutoff_main")
+method$cutoffs <- unlist(get_param("air_pollution", "ozone_percentile_cutoffs"))
+method$interpolation <- get_param("interpolation")
+method$station_rules <- get_param("station_series")
+method$stations <- fread(here::here(method$station_rules$stations_file), encoding = "UTF-8")
+# Period asked for in the download of the hourly records, as written in the file names
+method$hourly_period <- regmatches(method$station_rules$hourly_file_pattern,
+                                   gregexpr("[0-9]{4}-[0-9]{2}-[0-9]{2}",
+                                            method$station_rules$hourly_file_pattern))[[1]]
+stopifnot(length(method$hourly_period) == 2)
+# Months of the reanalysis that the scripts read (month names written in
+# English here: date formats follow the language of the computer)
+method$cams_months <- sub(".*_([0-9]{6})_.*", "\\1", cams_month_files())
+month_year <- function(yyyymm) paste(month.name[as.integer(substr(yyyymm, 5, 6))], substr(yyyymm, 1, 4))
+
+# The exposure dataset and its days of analysis
+method_exposure <- fread(derived_path("exposure_2009_2020.csv"), encoding = "UTF-8")
+method_exposure[, date := as.Date(date)]
+method_days <- method_exposure[in_study_period == TRUE & warm_season == TRUE]
+method$rows <- nrow(method_exposure)
+method$days <- uniqueN(method_days$date)
+method$municipality_days <- nrow(method_days)
+method$heatwave_columns <- grep("^hw_", names(method_exposure), value = TRUE)
+method$ozone_flags <- grep("_gt_p[0-9]+$", names(method_exposure), value = TRUE)
+method$share_hot_study <- 100 * mean(method_days$hot_p95)
+method$share_heatwave_study <- 100 * mean(method_days[[method$heatwave_main]])
+method$stations_per_day <- range(method_days$o3_n_stations)
+
+# The CR2MET municipal file: header (code, latitude, longitude, area) and series
+method_header <- fread(input_path("cr2met_tmax"), header = FALSE, nrows = 4)
+method_cr2met <- data.table(com = as.integer(unlist(method_header[1, -(1:3)])),
+                            latitude = as.numeric(unlist(method_header[2, -(1:3)])),
+                            area_km2 = as.numeric(unlist(method_header[4, -(1:3)])))
+method$cr2met_municipalities <- nrow(method_cr2met)
+# Number of cells of 0.01 degrees that make up each area: a cell measures
+# 0.01 degrees of latitude (111.195 km per degree) by 0.01 degrees of longitude
+method_cr2met[, cells := area_km2 / ((0.01 * 111.195)^2 * cos(latitude * pi / 180))]
+method_cr2met <- merge(method$municipalities[, .(com = code, municipality = name)], method_cr2met, by = "com")
+stopifnot(nrow(method_cr2met) == nrow(method$municipalities))
+method$largest <- method_cr2met[which.max(area_km2)]
+method$cells_departure <- max(abs(method_cr2met$cells - round(method_cr2met$cells)))
+
+method_tmax <- read_cr2met(input_path("cr2met_tmax"), "tmax", method$municipalities$code)
+method$cr2met_first <- min(method_tmax$date)
+method$cr2met_last <- max(method_tmax$date)
+method_tmax <- fill_calendar(method_tmax, "tmax", handling = get_param("temperature", "leap_day_handling"))
+method_tmax[, warm := is_warm_season(date, get_param("study", "warm_season_months"))]
+method_thresholds <- fread(file.path(dir_tables, "temperature_thresholds.csv"), encoding = "UTF-8")
+method_tmax <- merge(method_tmax,
+                     method_thresholds[season_rule == get_param("temperature", "percentile_season"), .(com, p95)],
+                     by = "com")
+method_reference <- method_tmax[year(date) >= method$reference_years[1] &
+                                  year(date) <= method$reference_years[2] & !temp_filled]
+# Share of the days of the reference period above the 95th percentile: of all
+# the days, and of the warm-season days
+method$share_hot_reference <- 100 * mean(method_reference$tmax > method_reference$p95)
+method$share_hot_reference_warm <- 100 * method_reference[warm == TRUE, mean(tmax > p95)]
+# The same share before the study years and in them, all the days of the year
+method$share_hot_before <- 100 * method_reference[year(date) < method$years[1], mean(tmax > p95)]
+method$share_hot_during <- 100 * method_reference[year(date) >= method$years[1] &
+                                                    year(date) <= method$years[2], mean(tmax > p95)]
+stopifnot(method$reference_years[1] < method$years[1], method$reference_years[2] >= method$years[2])
+
+# The delivered air pollution file
+method_delivered <- fread(input_path(paste0("sinca_", get_param("air_pollution", "series_version_main"))),
+                          select = c("comuna", "date"))
+method$delivered_rows <- nrow(method_delivered)
+method$delivered_first <- min(as.Date(method_delivered$date))
+method$delivered_last <- max(as.Date(method_delivered$date))
+rm(method_delivered, method_exposure, method_tmax, method_reference)
+```
+
+*Scripts of this deliverable: `Code/10_exposure_temperature.R` to
+`Code/18_exposure_time_series.R`. [Workflow and scripts](#sec-methods-workflow)
+lists what each one reads and writes, and every section of the page names the
+scripts and the files behind its tables and figures.*
+
+## Aim and design {#sec-methods-aim}
+
+The study asks whether heatwaves and high ozone, together, raise mortality
+more than the sum of their separate effects. This deliverable builds and
+checks the exposure side of that question: for every municipality and day, the
+temperature, the heatwave indicators, the ozone concentration and the compound
+exposure that combines them. The deaths and the models are the subject of the
+next deliverables.
+
+In the health analysis each death is compared with the other days of the same
+municipality, year, month and day of the week (time-stratified case-crossover
+design), with the exposure of the same day and of the
+`r max(method$lags)` days before. The exposure therefore has to be right day
+by day within each municipality, more than in its level between
+municipalities: this is what the checks below look at first.
+
+The work has four steps. Each is done by scripts that write their results to
+files, and this page only reads and shows those files:
+
+1. build the temperature, heatwave and air pollution variables of each
+   municipality and day;
+2. verify them: coverage, calendars, definitions, quality rules;
+3. validate the ozone exposure against the measurements it comes from;
+4. describe the exposures in space and time: maps and time series.
+
+## Study area, period and unit of analysis {#sec-methods-study}
+
+- **Area.** The `r nrow(method$municipalities)` municipalities of urban
+  Santiago: the 32 of Santiago Province and Puente Alto. They are listed, with
+  their official codes, in `config/municipalities.csv`.
+- **Period.** The warm seasons of `r method$years[1]` to `r method$years[2]`:
+  the days between 1 November and 31 March, that is January to March and
+  November to December of each of those calendar years. They are
+  `r fmt(method$days)` days.
+- **Unit.** The municipality-day: `r fmt(method$municipality_days)` in the
+  period of analysis. The exposure dataset holds every day of the study years
+  and the `r method$lag_buffer` days before the first one
+  (`r fmt(method$rows)` rows), because the health analysis needs the exposure
+  of the days before each death.
+- **Seasons and years.** Tables and figures by year use calendar years. The
+  time series that follow a season use the warm season that starts in
+  November, named by its two years: 2009/10 runs from 1 November 2009 to
+  31 March 2010. The first and the last seasons of the period, 2008/09 and
+  2020/21, are covered in part.
+
+## Data sources {#sec-methods-sources}
+
+::: {.wide-table}
+
+| Source | Producer and version | Content | Period of the files | How it reached the project | Used for |
+|:-----|:-------|:-----------|:-----|:-----|:------|
+| CR2MET, municipal series | Center for Climate and Resilience Research (CR)2, Universidad de Chile; version 2.5 (Boisier, 2023) | Daily maximum and minimum temperature, one series per municipality (`r method$cr2met_municipalities` municipalities of Chile) | `r format(method$cr2met_first)` to `r format(method$cr2met_last)` | Delivered by the project team | Temperature and heatwave indicators |
+| Interpolated SINCA series, versions `opr` and `all` | Project team, with the code of `pollution-interpolation-kriging-idw`; version received on 16 November 2026 | Daily ozone, PM2.5, PM10, nitrogen dioxide, relative humidity, temperature and wind by municipality: value by IDW, value by ordinary kriging with its variance, number of stations | `r format(method$delivered_first)` to `r format(method$delivered_last)` | Delivered by the project team | Ozone (24-hour mean), PM2.5, nitrogen dioxide and humidity of each municipality |
+| Hourly SINCA records | National Air Quality Information System (SINCA), Ministry of the Environment of Chile, <https://sinca.mma.gob.cl> | Hourly ozone of the `r nrow(method$stations)` stations of the Metropolitan Region listed in `config/stations.csv`, each record with its validation status | `r method$hourly_period[1]` to `r method$hourly_period[2]` (period asked for in the download) | Downloaded from the SINCA site, one file per station | Ozone rebuilt from the measurements; validation |
+| Station series and coordinates, target points, municipal polygons | Repository `pollution-interpolation-kriging-idw`, folder `Data`, commit `da97422` | Station series used by the interpolation, with the coordinates of the stations; one target point per municipality; polygons of the 33 municipalities | 2009 to 2020 | Public repository of the project team | Interpolation, validation and maps |
+| CAMS global reanalysis (EAC4) | Copernicus Atmosphere Monitoring Service, ECMWF (Inness and others, 2019) | Ozone every 3 hours, cells of `r get_param("reanalysis", "cell_size_degrees")` degrees | `r month_year(method$cams_months[1])` to `r month_year(method$cams_months[length(method$cams_months)])`, one file per month | Copernicus Atmosphere Monitoring Service | Independent comparison of the ozone series |
+
+: Sources of the data of this deliverable. {#tbl-sources}
+
+:::
+
+The files are kept exactly as received in `Data/Input`, which the scripts only
+read. `Data/input_manifest.csv` lists each input file with its size and
+checksum; every script checks the files it reads against that list and stops
+if one is missing or is not the listed one, so that a result cannot come
+unnoticed from another version of a file. `Data/README.md` describes each
+input in more detail.
+
+Two public codes of the research team are the reference for the definitions;
+they are not data:
+
+- `HeatWave_PretermBirth_Chile` (Blanco and others, 2026), for the heatwave
+  indicators;
+- `pollution-interpolation-kriging-idw`, for the interpolation model and its
+  parameters.
+
+## Temperature {#sec-methods-temperature}
+
+*Script: `Code/10_exposure_temperature.R`.*
+
+CR2MET is a gridded product of daily precipitation and of daily maximum and
+minimum temperature for continental Chile, on a regular grid of 0.05 degrees.
+It is built with statistical models calibrated on quality-controlled station
+records and fed with variables of the ERA5 reanalysis, topographic parameters
+and land-surface temperature estimated from satellite (Boisier, 2023). The
+project works with the series of that product by municipality.
+
+**What a municipal value is.** The header of the municipal files gives, for
+each municipality, its code, a latitude, a longitude and an area. For the 33
+municipalities of the study every one of those areas is a whole number of
+cells of 0.01 degrees, to within `r fmt(method$cells_departure, 2)` of a cell
+(the areas are given to 0.1 km²): `r method$largest$municipality` has
+`r fmt(round(method$largest$cells))` cells, `r fmt(method$largest$area_km2)` km².
+This indicates that the municipal series were computed over a mask of the
+whole territory of each municipality, drawn on a grid of 0.01 degrees. The
+files do not say with which rule; this report takes each value as the mean
+over the territory, which is how the values behave: the municipalities that
+reach into the Andes are much colder than their urban area. The rule should be
+confirmed with the team that produced the files
+([Points to settle](#sec-points-to-settle)); its consequences are in
+[Why the number of heatwave days differs between municipalities](#sec-heatwave-municipalities).
+
+**Calendar.** The municipal files have no 29 February. Those days are filled
+with the mean of 28 February and 1 March and marked in the column
+`temp_filled`; they are left out of the percentile calculations
+([CR2MET has no 29 February](#sec-leap-days)). Whether the calendar is aligned
+with that of the air pollution data is checked separately
+([Are the two calendars aligned?](#sec-calendar-alignment)).
+
+## Heatwave definitions {#sec-methods-heatwaves}
+
+*Script: `Code/10_exposure_temperature.R`; functions `consecutive_flag()` and
+`excess_heat_factor()` of `Code/01_functions.R`.*
+
+The analysis plan asks for the definitions of the reference code of the
+research team (Blanco and others, 2026): three durations and five thresholds,
+15 indicators in all. Each is a variable of the exposure dataset, equal to 1
+on a heatwave day and to 0 on any other day.
+
+**Thresholds.** For municipality $m$, the threshold $q_m$ is one of:
+
+- the `r paste0(method$percentiles, "th", collapse = ", ")` percentile of its
+  daily maximum temperature over
+  `r paste(method$reference_years, collapse = " to ")`, computed over all the
+  days of the year (`percentile_season: all_year`, as in the reference code)
+  with the usual interpolation between order statistics (type 7);
+- `r method$absolute_c` °C, the same for every municipality.
+
+**Hot day.** Day $t$ is hot in municipality $m$ when its maximum temperature
+is strictly above the threshold:
+
+$$H_{m,t} = 1 \ \text{ if } \ T^{\max}_{m,t} > q_m, \qquad H_{m,t} = 0 \ \text{ otherwise.}$$
+
+**Heatwave day.** Day $t$ is a heatwave day of duration $n$ when it is at
+least the $n$-th consecutive hot day:
+
+$$W^{(n)}_{m,t} = H_{m,t} \times H_{m,t-1} \times \dots \times H_{m,t-n+1}, \qquad n = 2, 3, 4.$$
+
+The first $n - 1$ days of a hot spell are therefore not heatwave days: with
+$n = 2$, a spell of five hot days has four heatwave days. Consecutive days are
+counted within each municipality, on its complete calendar. The reference
+script counts them over a table with all the municipalities stacked, which
+gives other numbers
+([Consecutive days must be counted within each municipality](#sec-consecutive-days)).
+
+**Excess heat factor.** The fifth threshold is the excess heat factor (EHF)
+of Nairn and Fawcett (2015), with the formulas of the reference code. Let
+$D_{m,t} = \left(T^{\max}_{m,t} + T^{\min}_{m,t+1}\right) / 2$ be the daily
+mean temperature (the variable `tad` of the dataset) and
+$\bar{D}^{(k)}_{m,t}$ its mean over the $k$ days that end on day $t$. Then
+
+$$\mathrm{EHI}^{\mathrm{sig}}_{m,t} = \bar{D}^{(n)}_{m,t} - D^{P`r method$ehf_percentile`}_{m}, \qquad
+\mathrm{EHI}^{\mathrm{accl}}_{m,t} = \bar{D}^{(n)}_{m,t} - \bar{D}^{(`r method$ehf_days`)}_{m,t},$$
+
+$$\mathrm{EHF}_{m,t} = \mathrm{EHI}^{\mathrm{sig}}_{m,t} \times \max\left(1, \ \mathrm{EHI}^{\mathrm{accl}}_{m,t}\right),$$
+
+where $D^{P`r method$ehf_percentile`}_{m}$ is the
+`r method$ehf_percentile`th percentile of the daily mean temperature of the
+municipality over the reference period. A day is a heatwave day when
+$\mathrm{EHF}_{m,t} > 0$, for $n = 2, 3, 4$. The original index uses a
+three-day mean and compares it with the `r method$ehf_days` days before it;
+here, as in the reference code, the same formulas are applied to the three
+durations, and the two means end on the same day.
+
+| Threshold | 2 days | 3 days | 4 days |
+|:----------|:-----|:-----|:-----|
+| 90th percentile of the municipality | `hw_p90_2d` | `hw_p90_3d` | `hw_p90_4d` |
+| 95th percentile of the municipality | `hw_p95_2d` | `hw_p95_3d` | `hw_p95_4d` |
+| 99th percentile of the municipality | `hw_p99_2d` | `hw_p99_3d` | `hw_p99_4d` |
+| 30 °C | `hw_30c_2d` | `hw_30c_3d` | `hw_30c_4d` |
+| Excess heat factor above zero | `hw_ehf_2d` | `hw_ehf_3d` | `hw_ehf_4d` |
+
+: The 15 heatwave indicators of the exposure dataset, by threshold and minimum number of consecutive days. {#tbl-indicators}
+
+**Working definition.** Where one definition has to be shown, the pages use
+`r method$heatwave_main` (`r heatwave_label(method$heatwave_main)`). It is a
+working value of `config/config.yml`, marked `TO CONFIRM`: the choice of the
+headline definition belongs to the principal investigator, and the results are
+given for the 15.
+
+**What the percentile means in the warm season.** The percentile is taken
+over all the days of the year, and the days above it are summer days. In the
+reference period, `r fmt(method$share_hot_reference, 1)`% of all the days are
+above the 95th percentile of their municipality, and
+`r fmt(method$share_hot_reference_warm, 1)`% of the warm-season days. Those
+days are not spread evenly over the period: they are
+`r fmt(method$share_hot_before, 1)`% of the days of
+`r method$reference_years[1]` to `r method$years[1] - 1` and
+`r fmt(method$share_hot_during, 1)`% of the days of the study years. In the
+warm seasons of `r method$years[1]` to `r method$years[2]`,
+`r fmt(method$share_hot_study, 1)`% of the municipality-days are above the
+threshold, and `r fmt(method$share_heatwave_study, 1)`% are heatwave days
+under the working definition. A threshold from the warm-season days alone is
+about one degree higher ([Temperature thresholds](#sec-thresholds)); which of
+the two to use is one of the [points to settle](#sec-points-to-settle).
+
+## Ozone and the other air pollution variables {#sec-methods-pollution}
+
+The dataset holds three ozone series for each municipality and day, each by
+two interpolation methods. All are in parts per billion (ppb).
+
+::: {.wide-table}
+
+| Series | Metric | Station values | Script |
+|:---|:------|:------|:--------|
+| `o3` | 24-hour mean | As prepared by the data author: trimmed and imputed | `Code/11_exposure_air_pollution.R` |
+| `o3obs` | 24-hour mean | Rebuilt here from the validated hourly records | `Code/12_ozone_station_series.R` |
+| `o3mda8` | Daily maximum 8-hour mean (MDA8), the metric named in the analysis plan | Rebuilt here from the validated hourly records | `Code/12_ozone_station_series.R` |
+
+: Ozone series of the exposure dataset. Each has the suffix `_idw` or `_ok`, for the interpolation method. {#tbl-ozone-series}
+
+:::
+
+### The delivered series {#sec-methods-delivered}
+
+*Script: `Code/11_exposure_air_pollution.R`.*
+
+The delivered files hold one row per municipality and day
+(`r fmt(method$delivered_rows)` rows). According to the description that came
+with the delivery and to the repository of the model, the data author built
+them in three steps:
+
+1. **Station series.** Hourly SINCA records, trimmed at their 1st and 99th
+   percentiles and averaged over the day when at least 12 hours are valid.
+2. **Imputation.** The gaps of the daily station series are filled: PM2.5
+   from PM10 by regression, the other variables with a random-forest method
+   (`missForest`).
+3. **Interpolation.** Each day is interpolated to one point per municipality,
+   the municipal administration building, with the model described below.
+
+There are two versions. Version `opr`, recommended by the data author and used
+here, keeps the values of each monitor inside its period of operation; version
+`all` also holds values modelled outside that period and is kept for
+sensitivity analyses. From the delivered files this project takes ozone,
+PM2.5, nitrogen dioxide and relative humidity; the last three are covariates
+of the sensitivity analyses of deliverable 4. Units are as delivered: ppb for
+ozone and nitrogen dioxide, µg/m³ for PM2.5, percent for humidity.
+
+Two rules are applied to the delivered values, and their effect is counted in
+[Ozone and co-pollutants: delivered series](#sec-delivered-series):
+
+- a value built on fewer than `r get_param("air_pollution", "min_stations")`
+  stations is set to missing;
+- a value below zero, which ordinary kriging can produce, is set to missing.
+
+### Ozone rebuilt from the hourly records {#sec-methods-rebuilt}
+
+*Script: `Code/12_ozone_station_series.R`; functions `read_sinca_hourly()`,
+`daily_from_hourly()` and `interpolate_day()` of `Code/01_functions.R`.*
+
+The delivered ozone is a 24-hour mean computed after trimming and imputation,
+and the analysis plan names the MDA8. Script 12 therefore rebuilds the station
+series from the hourly records as SINCA publishes them, with no trimming and
+no imputation:
+
+- **Records used.** SINCA marks every hourly record as validated, preliminary
+  or not validated. Only the records with status
+  `r paste(unlist(method$station_rules$accepted_status), collapse = ", ")`
+  are used.
+- **24-hour mean** (`o3obs`). The mean of the hours of the day, when at least
+  `r method$station_rules$min_valid_hours_day` are valid.
+- **MDA8** (`o3mda8`). For each hour of the day, the mean of the 8 hours that
+  end on it, when at least `r method$station_rules$mda8_min_hours_window` of
+  the 8 are valid; the MDA8 is the highest of those running means, when at
+  least `r method$station_rules$mda8_min_windows_day` of the 24 exist.
+- **Stations.** The `r nrow(method$stations)` ozone stations of the
+  Metropolitan Region:
+  `r paste(method$stations$station, collapse = ", ")`.
+
+The daily station values are then interpolated to the same target points with
+the same model and parameters as the delivered series.
+
+### The interpolation model {#sec-methods-interpolation}
+
+*Function `interpolate_day()` of `Code/01_functions.R`, with the calls of the
+data author's code; parameters under `interpolation` in `config/config.yml`.*
+
+Stations and target points are in UTM zone 19 South
+(EPSG `r method$interpolation$crs_epsg`), so that distances are in metres.
+Each day is interpolated on its own, when at least
+`r method$interpolation$ok_min_stations` stations have a value.
+
+- **Inverse distance weighting (IDW).** The value at the target point $s_0$
+  is the weighted mean of the stations, with weights that fall with the
+  distance $d_i$ to each station:
+
+  $$\hat{z}(s_0) = \frac{\sum_i w_i \, z(s_i)}{\sum_i w_i}, \qquad w_i = d_i^{-`r method$interpolation$idw_power`},$$
+
+  over at most the `r method$interpolation$idw_nmax` nearest stations within
+  `r fmt(method$interpolation$idw_maxdist_m / 1000)` km. A point with no
+  station within that distance has no value.
+- **Ordinary kriging.** The variogram of the day is chosen and fitted
+  automatically (`automap::autofitVariogram`), and each prediction comes with
+  its variance. With very few stations a variogram cannot always be fitted:
+  the day is then left without a kriging value, and counted.
+
+IDW is the working method of the configuration. The two methods are compared
+by cross-validation in [B. The interpolation model](#sec-validation-model).
+
+### High ozone {#sec-methods-high-ozone}
+
+*Script: `Code/13_exposure_merge_qc.R`; cut-offs in
+`Output/Tables/ozone_cutoffs.csv`.*
+
+A day has high ozone in a municipality when its value is above a percentile
+of the values of that municipality over the warm-season days of the study
+years. The percentiles are `r paste(method$cutoffs, collapse = ", ")`, for
+each of the six series: `r length(method$ozone_flags)` flags, named like
+`o3_idw_gt_p75`. The working definition is `r method$ozone_main` above the
+`r method$cutoff_main`th percentile, also marked `TO CONFIRM`.
+
+## Compound exposure {#sec-methods-compound}
+
+*Script: `Code/13_exposure_merge_qc.R`; function `compound_category()` of
+`Code/01_functions.R`.*
+
+Each municipality-day falls in one of four categories, from a heatwave
+indicator and a high-ozone flag:
+
+::: {.no-download}
+
+| Category | Heatwave | High ozone |
+|:---|:---|:---|
+| E00, neither | No | No |
+| E10, heatwave only | Yes | No |
+| E01, high ozone only | No | Yes |
+| E11, heatwave and high ozone | Yes | Yes |
+
+:::
+
+A day without one of the two values is not classified. The frequencies are
+tabulated for every combination of the `r length(method$heatwave_columns)`
+heatwave indicators and the `r length(method$ozone_flags)` ozone flags
+(`r length(method$heatwave_columns) * length(method$ozone_flags)` combinations),
+by municipality and by year
+([Across the grid of definitions](#sec-grid-definitions)).
+
+## Quality control {#sec-methods-quality}
+
+*Scripts: `Code/10_exposure_temperature.R` to `Code/13_exposure_merge_qc.R`.
+A check that fails stops the script: no dataset is written with a known
+defect.*
+
+::: {.wide-table}
+
+| Check | What is verified | Where |
+|:-----|:--------------|:-------|
+| Inputs | Every input file is the one listed in the manifest (size and checksum) | All the scripts |
+| Coverage | Each source has exactly one row per municipality and day, for the same days, with no repeated and no missing rows | [Coverage of the three sources](#sec-coverage) |
+| Calendar of the temperature | The only gaps are the 29 February days; any other gap stops the script | [CR2MET has no 29 February](#sec-leap-days) |
+| Alignment of the calendars | Day-to-day changes of CR2MET temperature and of station temperature agree best with no shift, in leap years as in the others | [Are the two calendars aligned?](#sec-calendar-alignment) |
+| Thresholds | Thresholds of each municipality under the two season rules | [Temperature thresholds](#sec-thresholds) |
+| Heatwave indicators | The 15 indicators exist; consecutive days are counted within each municipality; comparison with the reference script; differences between municipalities | [Heatwave indicators](#sec-heatwave-indicators) |
+| Delivered air pollution | Missing values, values below zero, values with too few stations; agreement of IDW and kriging; versions `opr` and `all` | [Ozone and co-pollutants: delivered series](#sec-delivered-series) |
+| Rebuilt ozone | Validation status of the hourly records; days with too few stations; days with a variogram warning or without a fitted variogram | [Ozone rebuilt from the hourly records](#sec-rebuilt-series) |
+| Dataset | One row per municipality and day; codebook with the missing values of every variable | [Exposure dataset, 2009-2020](#sec-exposure-dataset) |
+
+: Quality control of the exposure data. {#tbl-quality}
+
+:::
+
+The functions behind the variables are also tested apart, on small examples
+with a known answer (`tests/test_methods.R`), every time `Code/run_all.R`
+runs.
+
+## Validation of the ozone exposure {#sec-methods-validation}
+
+*Scripts: `Code/12_ozone_station_series.R`, `Code/14_interpolation_validation.R`,
+`Code/16_reanalysis_comparison.R` and `Code/17_validation_summary.R`.*
+
+The ozone exposure is examined at the three points where it can go wrong
+([Validation of the ozone exposure](#sec-ozone-validation)):
+
+- **Station inputs.** The station series used by the data author are compared,
+  station by station and day by day, with the 24-hour mean of the validated
+  hourly records.
+- **Interpolation model.** Leave-one-station-out cross-validation: for every
+  warm-season day each station is removed in turn, the model is fitted to the
+  others and the removed station is predicted. The agreement is measured by
+  the bias, the mean absolute error, the root mean square error, the
+  correlation and the coefficient of determination against the 1:1 line; for
+  the classification of high-ozone days, by sensitivity, specificity and
+  kappa.
+- **Municipal series.** The delivered series is compared with the series
+  rebuilt from the validated records with the same model, by level of ozone
+  and on the classification of high-ozone days.
+
+An independent source closes the validation: the CAMS reanalysis, which
+assimilates satellite retrievals of ozone into a chemistry model (Inness and
+others, 2019). Its cells are far larger than a municipality, so it is used
+only for the day-to-day course of ozone over the city.
+
+## Maps and time series {#sec-methods-series}
+
+*Scripts: `Code/13_exposure_merge_qc.R` for the dataset and the frequency
+tables; `Code/18_exposure_time_series.R` for the series of every
+municipality.*
+
+- **Maps.** One value per municipality over the days of analysis, drawn on the
+  municipal polygons of the interpolation repository.
+- **Series of every municipality.** Daily values, and their monthly and annual
+  summaries: the mean of temperature and of ozone, and the number of heatwave
+  days, of high-ozone days and of days with both.
+- **Mean of the municipalities.** The plain mean of the 33 municipal values:
+  every municipality counts the same, whatever its population or area. It
+  describes the typical municipality, not the exposure of the population of
+  the city.
+- **Missing values.** Some municipality-days have no rebuilt ozone value.
+  Means are taken over the days, or the municipalities, that have one, and the
+  tables give their number.
+
+## Workflow and scripts {#sec-methods-workflow}
+
+`Code/run_all.R` runs the scripts in this order, each in a new R session, and
+then renders the pages. The scripts are not run when a page is rendered.
+
+::: {.wide-table}
+
+| Script | Reads | Writes | Sections of this page |
+|:-------|:------|:--------------|:------|
+| `Code/10_exposure_temperature.R` | CR2MET municipal files | `Data/Derived/exposure_temperature.csv`; `Output/Tables/temperature_thresholds.csv` | Temperature thresholds; heatwave indicators |
+| `Code/11_exposure_air_pollution.R` | Delivered SINCA series, versions `opr` and `all` | `Data/Derived/exposure_air_pollution.csv`, `exposure_air_pollution_all.csv`; `Output/Tables/air_pollution_qc.csv` | Ozone and co-pollutants: delivered series |
+| `Code/12_ozone_station_series.R` | Hourly SINCA records; station coordinates and target points | `Data/Derived/ozone_station_daily.csv`, `ozone_rebuilt_municipal.csv`; `Output/Tables/ozone_station_hourly_status.csv`, `ozone_rebuilt_qc.csv` | Ozone rebuilt from the hourly records; validation |
+| `Code/13_exposure_merge_qc.R` | The three datasets above | `Data/Derived/exposure_2009_2020.csv`; `Output/Tables/exposure_alignment.csv`, `temporal_alignment_lags.csv`, `ozone_cutoffs.csv`, `compound_frequency_by_municipality.csv`, `compound_frequency_by_year.csv`, `exposure_codebook.csv` | Coverage; calendars; exposure dataset; maps; compound exposure |
+| `Code/14_interpolation_validation.R` | `ozone_station_daily.csv`; station coordinates | `Data/Derived/validation_loso_predictions.csv` | Validation, part B |
+| `Code/15_export_geodata.R` | Polygons, target points and station coordinates | `Data/Derived/municipality_polygons.geojson`, `interpolation_points.csv`, `ozone_station_points.csv` | None: used by script 16 and by the pages in Python |
+| `Code/16_reanalysis_comparison.R` | CAMS files; `interpolation_points.csv`; the exposure dataset | `Data/Derived/cams_ozone_daily.csv`, `cams_city_daily.csv`; `Output/Tables/validation_cams_cells.csv`, `validation_cams_correlation.csv` | Validation: the CAMS reanalysis |
+| `Code/17_validation_summary.R` | `ozone_station_daily.csv`; the exposure dataset; the cross-validation predictions; the data author's station series | Nine tables `Output/Tables/validation_*.csv` | Validation, parts A, B and C |
+| `Code/18_exposure_time_series.R` | The exposure dataset | `Output/Tables/series_daily_all_municipalities.csv`, `series_monthly_by_municipality.csv`, `series_annual_by_municipality.csv`; seven figures `Output/Figures/series_*`, each as PDF and as PNG at `r get_param("figures", "png_dpi")` dpi | Time series of every municipality |
+
+: Scripts of this deliverable, with what each one reads and writes. {#tbl-workflow}
+
+:::
+
+Shared code: `Code/00_setup.R` (folders, configuration, checks of the inputs),
+`Code/01_functions.R` (the functions named above) and `Code/02_plot_style.R`
+(style of the figures and the function that writes figure files). All the
+parameters are in `config/config.yml`; none is written in a script. The code
+of every script is in [R scripts](#sec-scripts).
+
+## Software and reproducibility {#sec-methods-software}
+
+The analysis is written in R; the session information at the end of the page
+gives the version of R and of the packages behind this rendering, and
+`Output/run_environment.txt` those of the last complete run. The main
+packages are `data.table` for the data, `sf` for the geometries, `gstat` and
+`automap` for the interpolation, and `ggplot2` for the figures. The pages are
+rendered with Quarto.
+
+`Code/run_all.R` runs everything with one command: it checks the software and
+the inputs, runs the tests of the methods and the scripts, renders the pages
+and compares every table with its copy from before the run. The exposure
+dataset is also rebuilt independently in Python and compared with the R
+version column by column ([Exposure dataset in Python](py_01_exposure.html)).
+
+## Limits of the exposure data {#sec-methods-limits}
+
+- **Temperature is a value for the whole municipal territory, ozone a value
+  at one point.** In the municipalities that reach into the Andes the
+  temperature series describes the mountain more than the place where people
+  live, while ozone is interpolated to the municipal building.
+  `r method$largest$municipality` is the extreme case
+  ([Why the number of heatwave days differs between municipalities](#sec-heatwave-municipalities)).
+- **The percentile thresholds come from a period that contains the study
+  years.** Days above the threshold are
+  `r fmt(method$share_hot_during / method$share_hot_before, 1)` times as
+  frequent in the study years as in the earlier years of the reference
+  period, and most heatwave days fall in the last years of the study
+  ([Time series of every municipality](#sec-series-municipalities)).
+- **Few monitors.** Between `r method$stations_per_day[1]` and
+  `r method$stations_per_day[2]` stations a day describe
+  `r nrow(method$municipalities)` municipalities in the delivered series, and
+  the eastern municipalities depend on one monitor
+  ([What this means for the analysis](#sec-validation-conclusions)).
+- **The delivered ozone is a 24-hour mean built on trimmed and imputed
+  station series**, and it understates the days with most ozone. The plan
+  names the MDA8. The three series are kept so that the choice can be made and
+  its effect shown.
+- **Ordinary kriging with a variogram fitted every day** is not reproducible
+  to the last digit between machines, and its intervals are too narrow. IDW
+  gives the same values on every machine.
+- **Working definitions.** The heatwave definition, the ozone series, the
+  ozone cut-off and the season of the percentiles are working values. The
+  open choices are listed in [Points to settle](#sec-points-to-settle).
+
+## References {#sec-methods-references}
+
+- Blanco, E., Conejeros, J. D., González-Reyes, Á., Rubilar, P., Sarricolea,
+  P., and Smith, P. (2026). Heat beyond percentiles: exploring preterm birth
+  risks in Santiago, Chile (1991-2019). *International Archives of
+  Occupational and Environmental Health*, 99, 5.
+  <https://doi.org/10.1007/s00420-025-02196-x>. Code: repository
+  `HeatWave_PretermBirth_Chile`, <https://doi.org/10.5281/zenodo.17316761>.
+- Boisier, J. P. (2023). CR2MET: A high-resolution precipitation and
+  temperature dataset for the period 1960-2021 in continental Chile (v2.5)
+  [Data set]. Zenodo. <https://doi.org/10.5281/zenodo.7529682>.
+- Inness, A., Ades, M., Agustí-Panareda, A., and others (2019). The CAMS
+  reanalysis of atmospheric composition. *Atmospheric Chemistry and Physics*,
+  19, 3515-3556. <https://doi.org/10.5194/acp-19-3515-2019>.
+- Nairn, J. R., and Fawcett, R. J. B. (2015). The excess heat factor: a metric
+  for heatwave intensity and its use in classifying heatwave severity.
+  *International Journal of Environmental Research and Public Health*, 12(1),
+  227-253. <https://doi.org/10.3390/ijerph120100227>.
+- Interpolation code of the research team: repository
+  `pollution-interpolation-kriging-idw`,
+  <https://github.com/ClimChange-NewbornHealth/pollution-interpolation-kriging-idw>,
+  <https://doi.org/10.5281/zenodo.20145006>.
+- National Air Quality Information System (SINCA), Ministry of the Environment
+  of Chile. <https://sinca.mma.gob.cl>.
+
+# Data verification and quality control {#sec-quality-control}
+
+```{r}
+#| label: setup-quality-control
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+exposure <- fread(derived_path("exposure_2009_2020.csv"), encoding = "UTF-8")
+exposure[, date := as.Date(date)]
+analysis <- exposure[in_study_period == TRUE & warm_season == TRUE]
+n_mun <- uniqueN(analysis$com)
+n_days <- uniqueN(analysis$date)
+fmt <- function(x, digits = 0) formatC(x, format = "f", digits = digits, big.mark = ",")
+```
+
+## Purpose
+
+This section verifies the exposure data of the study before any health analysis:
+that temperature and air pollution cover the same municipalities and days, that
+the heatwave indicators mean what the analysis plan says, and that the ozone
+series are fit for use. The exposure dataset for 2009-2020 and the points that
+need a decision follow in their own sections.
+
+The unit is the municipality-day: `r n_mun` municipalities (Santiago Province
+plus Puente Alto) and the `r fmt(n_days)` days between 1 November and 31 March
+of the calendar years 2009 to 2020, that is `r fmt(nrow(analysis))`
+municipality-days.
+
+The sources of the data are described in
+[Data sources](#sec-methods-sources) and the definitions in the rest of the
+[Methodology](#sec-methodology). Every parameter used below is read from
+`config/config.yml`.
+
+## Coverage of the three sources {#sec-coverage}
+
+*Script: `Code/13_exposure_merge_qc.R`. Table:
+`Output/Tables/exposure_alignment.csv`.*
+
+Each source must hold exactly one row per municipality and day, for the same
+days. The dataset keeps the three days before 1 January 2009 so that deaths of
+the first days have their lagged exposures.
+
+```{r}
+#| label: tbl-alignment
+#| tbl-cap: "Coverage of each source on the municipality-by-day grid."
+alignment <- read_table("exposure_alignment.csv")
+kable(alignment, format.args = list(big.mark = ","),
+      col.names = c("Source", "Rows", "Municipalities", "First day", "Last day", "Days",
+                    "Repeated rows", "Missing from grid", "Outside grid"))
+```
+
+The three sources cover the same `r fmt(alignment$rows[1])` municipality-days
+with no repeated and no missing rows.
+
+## Calendars
+
+### CR2MET has no 29 February {#sec-leap-days}
+
+*Computed in this page from the CR2MET file, with `read_cr2met()`. The days
+are filled by `fill_calendar()` in `Code/10_exposure_temperature.R`.*
+
+```{r}
+#| label: leap-days
+one <- read_cr2met(input_path("cr2met_tmax"), "tmax", study_municipalities()$code[1])
+calendar <- seq(min(one$date), max(one$date), by = "day")
+absent <- calendar[!calendar %in% one$date]
+in_study <- absent[year(absent) >= 2009 & year(absent) <= 2020]
+```
+
+The CR2MET municipal files have `r fmt(nrow(one))` days between
+`r format(min(one$date))` and `r format(max(one$date))`, against
+`r fmt(length(calendar))` calendar days. The `r length(absent)` absent days are
+all 29 February (`r paste(format(absent, "%Y"), collapse = ", ")`); three fall in
+the study period (`r paste(format(in_study), collapse = ", ")`), which leaves
+`r length(in_study) * n_mun` municipality-days without temperature.
+
+The configuration sets `leap_day_handling` to
+"`r get_param("temperature", "leap_day_handling")`": the pipeline fills those
+days with the mean of 28 February and 1 March and marks them in `temp_filled`.
+They are left out of the percentile calculations.
+
+### Are the two calendars aligned? {#sec-calendar-alignment}
+
+*Script: `Code/13_exposure_merge_qc.R`. Table:
+`Output/Tables/temporal_alignment_lags.csv`.*
+
+A file with 365 days per year could also be shifted by one day after each
+29 February. The check below correlates the day-to-day change of the CR2MET
+maximum temperature with the day-to-day change of the SINCA station
+temperature, moved between two days earlier and two days later. Aligned
+calendars give the highest correlation at a shift of zero, in leap years as in
+the others.
+
+```{r}
+#| label: fig-lags
+#| fig-cap: "Correlation between day-to-day changes of CR2MET maximum temperature and SINCA station temperature, by shift of the SINCA series."
+#| fig-height: 3.4
+lags <- read_table("temporal_alignment_lags.csv")
+ggplot(lags, aes(factor(shift_days), correlation)) +
+  geom_col(width = 0.6, fill = colour_method[["IDW"]]) +
+  geom_text(aes(label = sprintf("%.2f", correlation), vjust = ifelse(correlation >= 0, -0.4, 1.3)),
+            colour = ink$secondary, size = 3.2) +
+  facet_wrap(~period) +
+  scale_y_continuous(expand = expansion(mult = c(0.12, 0.15))) +
+  labs(x = "Shift of the SINCA series (days)", y = "Correlation")
+```
+
+```{r}
+#| label: tbl-lags
+#| tbl-cap: "Values behind the figure."
+kable(dcast(lags, period ~ shift_days, value.var = "correlation"), digits = 3)
+```
+
+The correlation peaks at a shift of zero in both periods: CR2MET dates are
+calendar dates and the only difference is the missing 29 February.
+
+## Temperature thresholds {#sec-thresholds}
+
+*Script: `Code/10_exposure_temperature.R`. Table:
+`Output/Tables/temperature_thresholds.csv`.*
+
+Percentiles of the daily maximum temperature of each municipality over
+`r paste(get_param("temperature", "percentile_reference_years"), collapse = "-")`.
+The reference code computes them over all days of the year
+(`percentile_season: all_year`, the value in use); the table also gives the
+thresholds that the warm-season days alone would produce.
+
+```{r}
+#| label: fig-thresholds
+#| fig-cap: "95th percentile of daily maximum temperature by municipality, reference period 1990-2020, under the two season rules."
+#| fig-height: 6.2
+thresholds <- read_table("temperature_thresholds.csv")
+thresholds[, rule := fifelse(season_rule == "all_year", "All days of the year", "Warm-season days")]
+order_mun <- thresholds[season_rule == "all_year"][order(p95), municipality]
+ggplot(thresholds, aes(p95, factor(municipality, levels = order_mun), colour = rule)) +
+  geom_vline(xintercept = get_param("temperature", "absolute_threshold_celsius"),
+             colour = ink$axis, linetype = "dashed") +
+  geom_point(size = 2.4) +
+  scale_colour_manual(values = c("All days of the year" = "#2a78d6", "Warm-season days" = "#eb6834")) +
+  labs(x = "95th percentile of maximum temperature (°C)", y = NULL, colour = NULL,
+       caption = "Dashed line: the absolute threshold of 30 °C.")
+```
+
+```{r}
+#| label: tbl-thresholds
+#| tbl-cap: "Thresholds of maximum temperature by municipality (°C)."
+wide <- dcast(thresholds, com + municipality ~ season_rule, value.var = c("p90", "p95", "p99"))
+kable(wide[order(com)], digits = 1,
+      col.names = c("Code", "Municipality", "P90 all year", "P90 warm", "P95 all year",
+                    "P95 warm", "P99 all year", "P99 warm"))
+```
+
+The CR2MET municipal values describe the whole territory of the municipality
+([Temperature](#sec-methods-temperature)). Municipalities that reach into the
+Andes are therefore colder than their urban area: the 95th percentile ranges from
+`r sprintf("%.1f", min(thresholds[season_rule == "all_year", p95]))` °C
+(`r thresholds[season_rule == "all_year"][which.min(p95), municipality]`) to
+`r sprintf("%.1f", max(thresholds[season_rule == "all_year", p95]))` °C
+(`r thresholds[season_rule == "all_year"][which.max(p95), municipality]`). A
+fixed threshold of 30 °C means very different things across municipalities,
+while the percentile thresholds adapt to each one.
+
+## Heatwave indicators {#sec-heatwave-indicators}
+
+*Script: `Code/10_exposure_temperature.R` builds the indicators. The table and
+the figure are computed in this page from the exposure dataset
+(`Code/13_exposure_merge_qc.R`).*
+
+A day is a heatwave day when it is at least the n-th consecutive day above the
+threshold (n = 2, 3, 4), or when the excess heat factor of the last n days is
+positive. The first n − 1 days of a hot spell are not flagged, as in the
+reference code. The formulas are in
+[Heatwave definitions](#sec-methods-heatwaves).
+
+```{r}
+#| label: tbl-heatwaves
+#| tbl-cap: "Heatwave days in the warm seasons of 2009-2020 under the 15 definitions."
+hw_columns <- grep("^hw_", names(analysis), value = TRUE)
+hw_table <- rbindlist(lapply(hw_columns, function(v) {
+  per_mun <- analysis[, .(days = sum(get(v))), by = com]
+  data.table(indicator = v, municipality_days = sum(per_mun$days),
+             share_pct = 100 * sum(per_mun$days) / nrow(analysis),
+             per_municipality_year = mean(per_mun$days) / 12,
+             min_municipality = min(per_mun$days), max_municipality = max(per_mun$days))
+}))
+kable(hw_table, digits = c(0, 0, 1, 1, 0, 0), format.args = list(big.mark = ","),
+      col.names = c("Indicator", "Municipality-days", "% of days", "Days per municipality and year",
+                    "Fewest in a municipality (12 years)", "Most in a municipality (12 years)"))
+```
+
+```{r}
+#| label: fig-heatwaves
+#| fig-cap: "Heatwave days per municipality and year, by threshold and minimum duration."
+#| fig-height: 3.6
+hw_table[, threshold := factor(sub("^hw_(.*)_[0-9]d$", "\\1", indicator),
+                               levels = c("p90", "p95", "p99", "30c", "ehf"),
+                               labels = c("> P90", "> P95", "> P99", "> 30 °C", "EHF > 0"))]
+hw_table[, duration := paste0(sub(".*_([0-9])d$", "\\1", indicator), " days")]
+ggplot(hw_table, aes(duration, per_municipality_year)) +
+  geom_col(width = 0.6, fill = ramp_orange[4]) +
+  geom_text(aes(label = sprintf("%.1f", per_municipality_year)), vjust = -0.4,
+            colour = ink$secondary, size = 3) +
+  facet_wrap(~threshold, nrow = 1) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(x = "Minimum duration", y = "Days per municipality and year")
+```
+
+### Consecutive days must be counted within each municipality {#sec-consecutive-days}
+
+*Computed in this page from the CR2MET file and the thresholds of
+`Code/10_exposure_temperature.R`.*
+
+The reference script (`HeatWave_PretermBirth_Chile`, `Code/2.0 HW_process_data.R`)
+builds the indicators with `lag()` on a table that holds all municipalities
+stacked and sorted by date. As published, the previous row of a municipality is
+therefore another municipality on the same day, not the same municipality on the
+previous day. The chunk below applies that logic and the within-municipality
+logic to the same temperatures and thresholds.
+
+```{r}
+#| label: tbl-reference-lag
+#| tbl-cap: "Heatwave days (> P95) in the 33 municipalities, warm seasons 2009-2020: lag over stacked rows against lag within municipality."
+# All municipalities of the Metropolitan Region, in the column order of the file
+raw <- fread(input_path("cr2met_tmax"), header = FALSE)
+file_codes <- as.integer(unlist(raw[1, -(1:3)]))
+rm_codes <- file_codes[file_codes >= 13000 & file_codes < 14000]
+stacked <- read_cr2met(input_path("cr2met_tmax"), "tmax", rm_codes)
+stacked[, file_order := match(com, rm_codes)]
+p95 <- thresholds[season_rule == get_param("temperature", "percentile_season"), .(com, p95)]
+stacked <- merge(stacked, p95, by = "com", all.x = TRUE)
+stacked[, hot := as.integer(tmax > p95)]
+
+# As published: rows sorted by date, municipalities stacked, lag over rows
+setorder(stacked, date, file_order)
+for (n in 2:4) {
+  stacked[, (paste0("rows_", n, "d")) := as.integer(Reduce(`+`, shift(hot, 0:(n - 1))) >= n)]
+}
+# Within municipality, over consecutive calendar rows of the file
+setorder(stacked, com, date)
+for (n in 2:4) {
+  stacked[, (paste0("within_", n, "d")) := as.integer(Reduce(`+`, shift(hot, 0:(n - 1))) >= n),
+          by = com]
+}
+compare <- stacked[com %in% study_municipalities()$code & year(date) %in% 2009:2020 &
+                     month(date) %in% get_param("study", "warm_season_months")]
+for (v in grep("^(rows|within)_", names(compare), value = TRUE)) {
+  set(compare, which(is.na(compare[[v]])), v, 0L)
+}
+lag_compare <- rbindlist(lapply(2:4, function(n) {
+  a <- compare[[paste0("rows_", n, "d")]]
+  b <- compare[[paste0("within_", n, "d")]]
+  data.table(duration = paste(n, "days"), hot_days = sum(compare$hot),
+             stacked_rows = sum(a), within_municipality = sum(b),
+             flagged_only_by_stacked = sum(a == 1 & b == 0),
+             flagged_only_within = sum(a == 0 & b == 1))
+}))
+kable(lag_compare, format.args = list(big.mark = ","),
+      col.names = c("Minimum duration", "Days above P95", "Lag over stacked rows",
+                    "Lag within municipality", "Flagged only by stacked rows",
+                    "Flagged only within municipality"))
+```
+
+With the stacked-row lag, a single hot day is flagged as a heatwave whenever the
+neighbouring municipalities in the file are also hot that day, so the number of
+heatwave days barely falls as the required duration grows. Counting within each
+municipality gives the indicators used in this project. The published indicators
+of the reference repository should be checked against this before they are
+reused.
+
+### Why the number of heatwave days differs between municipalities {#sec-heatwave-municipalities}
+
+*Computed in this page from the exposure dataset
+(`Code/13_exposure_merge_qc.R`), the thresholds of
+`Code/10_exposure_temperature.R`, the header of the CR2MET file and the target
+points of the interpolation. The indicator is computed again here with
+`consecutive_flag()` and has to equal the one of the dataset.*
+
+The threshold is a percentile of each municipality, so the number of days
+above it is nearly the same everywhere. The number of heatwave days is not.
+The table takes the indicators of the 95th percentile apart, municipality by
+municipality.
+
+```{r}
+#| label: heatwave-municipalities
+main_rule <- get_param("temperature", "percentile_season")
+other_rule <- setdiff(c("all_year", "warm_season"), main_rule)
+rule_label <- c(all_year = "all the days of the year", warm_season = "the warm-season days")
+
+# Hot spells: runs of consecutive days above the threshold, on the complete
+# calendar of each municipality
+calendar <- exposure[order(com, date), .(com, municipality, date, in_study_period, warm_season,
+                                         tmax, hot_p95, hw_p95_2d, hw_p95_3d, hw_p95_4d)]
+stopifnot(calendar[, all(diff(date) == 1), by = com]$V1)
+calendar[, spell := rleid(hot_p95), by = com]
+calendar[, change := tmax - shift(tmax), by = com]
+# The indicator of the dataset is what the definition says
+calendar[, check_2d := consecutive_flag(hot_p95, 2), by = com]
+stopifnot(calendar[!is.na(check_2d), all(check_2d == hw_p95_2d)])
+# The same count with the thresholds of the other season rule
+calendar <- merge(calendar, thresholds[season_rule == other_rule, .(com, p95_other = p95)], by = "com")
+setorder(calendar, com, date)
+calendar[, hw_other_2d := consecutive_flag(as.integer(tmax > p95_other), 2), by = com]
+season_days <- calendar[in_study_period == TRUE & warm_season == TRUE]
+spells <- season_days[hot_p95 == 1, .(days = .N, first = min(date), last = max(date)),
+                      by = .(com, spell)]
+
+# Territory behind the temperature series, and distance from its centre to the
+# point where ozone is interpolated. The header of the CR2MET file gives the
+# code, the latitude, the longitude (to 0.01 degrees, about 1 km) and the area
+# of each municipality.
+cr2met_header <- fread(input_path("cr2met_tmax"), header = FALSE, nrows = 4)
+territory <- data.table(com = as.integer(unlist(cr2met_header[1, -(1:3)])),
+                        latitude = as.numeric(unlist(cr2met_header[2, -(1:3)])),
+                        longitude = as.numeric(unlist(cr2met_header[3, -(1:3)])),
+                        area_km2 = as.numeric(unlist(cr2met_header[4, -(1:3)])))
+territory <- merge(study_municipalities()[, .(com = code, municipality = name)], territory, by = "com")
+ozone_points <- new.env()
+load(input_path("interpolation_locations"), envir = ozone_points)
+ozone_points <- ozone_points$interpol
+stopifnot(setequal(ozone_points$comuna, territory$municipality))
+centres <- sf::st_transform(sf::st_as_sf(territory, coords = c("longitude", "latitude"), crs = 4326),
+                            sf::st_crs(ozone_points))
+territory[, distance_km := as.numeric(sf::st_distance(
+  centres, ozone_points[match(municipality, ozone_points$comuna), ], by_element = TRUE)) / 1000]
+
+by_municipality <- Reduce(function(a, b) merge(a, b, by = "com"), list(
+  season_days[, .(tmax = mean(tmax), hot_days = sum(hot_p95), hw_2d = sum(hw_p95_2d),
+                  hw_3d = sum(hw_p95_3d), hw_4d = sum(hw_p95_4d), hw_other_2d = sum(hw_other_2d),
+                  sd_change = sd(change)), by = .(com, municipality)],
+  spells[, .(spells = .N, mean_length = mean(days), longest = max(days)), by = com],
+  thresholds[season_rule == main_rule, .(com, p95)],
+  territory[, .(com, area_km2, distance_km)]))
+stopifnot(nrow(by_municipality) == n_mun, !anyNA(by_municipality))
+setorder(by_municipality, -hw_2d)
+most <- by_municipality[1]
+fewest <- by_municipality[.N]
+longest_spell <- spells[com == most$com][which.max(days)]
+others <- by_municipality[com != most$com]
+# Series more than 2 °C colder than the median municipality
+colder <- by_municipality[com != most$com & tmax < median(tmax) - 2][order(tmax), municipality]
+# Quoted in "Points to settle", at the end of the page
+andes_point <- sprintf(
+  "In %s it is %s °C colder than in the median municipality and gives the most heatwave days of the 33: %d, against %d to %d in the others",
+  most$municipality, fmt(median(by_municipality$tmax) - most$tmax, 1), most$hw_2d,
+  min(others$hw_2d), max(others$hw_2d))
+```
+
+```{r}
+#| label: tbl-heatwave-municipalities
+#| tbl-cap: "Days above the 95th percentile and heatwave days by municipality, warm seasons 2009-2020, with the territory behind each temperature series. Municipalities in order of heatwave days."
+kableExtra::scroll_box(
+  kableExtra::kable_styling(
+    kable(by_municipality[, .(municipality, area_km2, distance_km, tmax, p95, hot_days, spells,
+                              mean_length, longest, hw_2d, hw_3d, hw_4d, hw_other_2d, sd_change)],
+          format = "html", digits = c(0, 1, 1, 1, 1, 0, 0, 2, 0, 0, 0, 0, 0, 2),
+          format.args = list(big.mark = ","),
+          col.names = c("Municipality", "Territory of the temperature series (km²)",
+                        "From its centre to the ozone point (km)", "Mean maximum temperature (°C)",
+                        "95th percentile (°C)", "Days above the 95th percentile", "Hot spells",
+                        "Mean length of the spells (days)", "Longest spell (days)",
+                        "Heatwave days, 2 days or more", "3 days or more", "4 days or more",
+                        paste("2 days or more, threshold from", rule_label[[other_rule]]),
+                        "SD of the day-to-day change of temperature (°C)")),
+    bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "420px"
+)
+```
+
+```{r}
+#| label: fig-heatwave-municipalities
+#| fig-cap: "Heatwave days of each municipality against the mean length of its hot spells, warm seasons 2009-2020. One point per municipality."
+#| fig-height: 3.8
+labelled <- by_municipality[com %in% c(most$com, fewest$com)]
+ggplot(by_municipality, aes(mean_length, hw_2d)) +
+  geom_point(shape = 21, size = 2.8, fill = ramp_orange[4], colour = ink$surface, stroke = 0.6) +
+  geom_text(data = labelled, aes(label = municipality), colour = ink$secondary, size = 3.2,
+            hjust = ifelse(labelled$com == most$com, 1.15, -0.15)) +
+  labs(x = "Mean length of the hot spells (days)",
+       y = sprintf("Heatwave days (%s)", heatwave_label("hw_p95_2d")))
+```
+
+- **The days above the threshold are almost the same.** Between
+  `r min(by_municipality$hot_days)` and `r max(by_municipality$hot_days)` of
+  the `r fmt(n_days)` days of analysis, in every municipality.
+- **Their grouping is not.** A spell of five hot days has four heatwave days
+  under the two-day definition, and five single hot days have none: hot days
+  that come in fewer and longer spells give more heatwave days.
+  `r most$municipality` has `r most$hot_days` hot days in `r most$spells`
+  spells, `r fmt(most$mean_length, 2)` days long on average; the longest
+  lasted `r longest_spell$days` days, from `r format(longest_spell$first)` to
+  `r format(longest_spell$last)`. `r fewest$municipality` has
+  `r fewest$hot_days` hot days in `r fewest$spells` spells of
+  `r fmt(fewest$mean_length, 2)` days, none longer than `r fewest$longest` days.
+  Across the 33 municipalities, the heatwave days and the mean length of the
+  spells have a correlation of `r fmt(cor(by_municipality$hw_2d, by_municipality$mean_length), 2)`.
+- **The difference grows with the duration.** With two days or more:
+  `r most$hw_2d` heatwave days in `r most$municipality` against
+  `r fewest$hw_2d` in `r fewest$municipality`; with four or more:
+  `r most$hw_4d` against `r fewest$hw_4d`.
+- **It does not come from the season of the percentile.** With the threshold
+  from `r rule_label[[other_rule]]` the heatwave days are between
+  `r min(by_municipality$hw_other_2d)` and `r max(by_municipality$hw_other_2d)`,
+  and `r by_municipality[which.max(hw_other_2d), municipality]` still has the
+  most.
+
+**Why `r most$municipality`.** Its series is the coldest by far (mean maximum
+`r fmt(most$tmax, 1)` °C, against `r fmt(min(others$tmax), 1)` to
+`r fmt(max(others$tmax), 1)` °C in the others) and the one that changes least
+from one day to the next: the standard deviation of the day-to-day change is
+`r fmt(most$sd_change, 2)` °C, against `r fmt(min(others$sd_change), 2)` to
+`r fmt(max(others$sd_change), 2)` °C. A hot day is therefore followed more
+often by another hot day. The series describes a territory of
+`r fmt(most$area_km2)` km², `r fmt(most$area_km2 / max(others$area_km2), 0)`
+times the next largest, and the point where the ozone of the municipality is
+interpolated is `r fmt(most$distance_km, 1)` km from the centre of that
+territory (the median of the 33 municipalities is
+`r fmt(median(by_municipality$distance_km), 1)` km). The reading that follows
+is an interpretation, not a result: a value for a large mountain territory
+follows the slow changes of the air mass, and misses the day-to-day changes
+of the valley floor, where the people of the municipality live.
+
+**What it means for the analysis.** Within a municipality the indicator is
+consistent: it marks the days that are hot for that series, and the health
+analysis compares days of the same municipality. What is not assured is that
+a heatwave day of the series is a heatwave day where people live. This
+concerns `r most$municipality` above all, and to a smaller degree the other
+series that are more than 2 °C colder than the median municipality
+(`r paste(colder, collapse = ", ")`). The options are in
+[Points to settle](#sec-points-to-settle).
+
+## Ozone and co-pollutants: delivered series {#sec-delivered-series}
+
+*Script: `Code/11_exposure_air_pollution.R`. Table:
+`Output/Tables/air_pollution_qc.csv`. The other tables and the figure are
+computed in this page from the exposure dataset and from
+`Data/Derived/exposure_air_pollution_all.csv`. How the series were built:
+[The delivered series](#sec-methods-delivered).*
+
+```{r}
+#| label: tbl-pollution-qc
+#| tbl-cap: "Quality rules applied to the delivered interpolated series, all days of the dataset."
+pollution_qc <- read_table("air_pollution_qc.csv")
+kable(pollution_qc, format.args = list(big.mark = ","),
+      col.names = c("Version", "Variable", "Method", "Rows", "Missing as delivered",
+                    "Below zero, set to missing", "Fewer stations than the minimum, set to missing"))
+```
+
+```{r}
+#| label: tbl-pollution-summary
+#| tbl-cap: "Delivered series in the warm seasons of 2009-2020: distribution, stations and agreement between the two interpolation methods."
+variables <- c(o3 = "Ozone, 24-hour mean (ppb)", pm25 = "PM2.5 (µg/m³)",
+               no2 = "Nitrogen dioxide (ppb)", hum = "Relative humidity (%)")
+pollution_summary <- rbindlist(lapply(names(variables), function(v) {
+  idw <- analysis[[paste0(v, "_idw")]]
+  ok <- analysis[[paste0(v, "_ok")]]
+  st <- analysis[[paste0(v, "_n_stations")]]
+  data.table(variable = variables[[v]], idw_mean = mean(idw, na.rm = TRUE),
+             ok_mean = mean(ok, na.rm = TRUE), idw_missing = sum(is.na(idw)),
+             ok_missing = sum(is.na(ok)), stations = sprintf("%d to %d", min(st), max(st)),
+             correlation = cor(idw, ok, use = "complete.obs"),
+             mean_abs_difference = mean(abs(idw - ok), na.rm = TRUE))
+}))
+kable(pollution_summary, digits = 2, format.args = list(big.mark = ","),
+      col.names = c("Variable", "Mean, IDW", "Mean, kriging", "Missing, IDW", "Missing, kriging",
+                    "Stations per day", "Correlation IDW-kriging", "Mean absolute difference"))
+```
+
+```{r}
+#| label: fig-methods
+#| fig-cap: "Ozone by ordinary kriging against ozone by IDW, delivered series, municipality-days of the warm seasons 2009-2020."
+#| fig-height: 4.4
+#| fig-width: 5.2
+ggplot(analysis[!is.na(o3_ok)], aes(o3_idw, o3_ok)) +
+  geom_bin2d(bins = 70) +
+  geom_abline(colour = ink$primary, linewidth = 0.4) +
+  scale_fill_magnitude(name = "Municipality-days", trans = "log10") +
+  coord_equal() +
+  labs(x = "IDW (ppb)", y = "Ordinary kriging (ppb)") +
+  theme(legend.position = "right", legend.justification = "center")
+```
+
+### Version `opr` against version `all`
+
+```{r}
+#| label: tbl-versions
+#| tbl-cap: "Ozone in the two delivered versions, warm seasons 2009-2020."
+all_version <- fread(derived_path("exposure_air_pollution_all.csv"), encoding = "UTF-8",
+                     select = c("com", "date", "o3_idw", "o3_ok", "o3_n_stations"))
+all_version[, date := as.Date(date)]
+versions <- merge(analysis[, .(com, date, o3_idw, o3_ok, o3_n_stations)], all_version,
+                  by = c("com", "date"), suffixes = c("_opr", "_all"))
+version_table <- rbindlist(lapply(c("idw", "ok"), function(m) {
+  a <- versions[[paste0("o3_", m, "_opr")]]
+  b <- versions[[paste0("o3_", m, "_all")]]
+  data.table(method = m, municipality_days = sum(!is.na(a) & !is.na(b)),
+             identical_pct = 100 * mean(abs(a - b) < 1e-6, na.rm = TRUE),
+             correlation = cor(a, b, use = "complete.obs"),
+             mean_difference = mean(b - a, na.rm = TRUE),
+             p95_abs_difference = quantile(abs(b - a), 0.95, na.rm = TRUE))
+}))
+kable(version_table, digits = c(0, 0, 1, 3, 2, 2), format.args = list(big.mark = ","),
+      col.names = c("Method", "Municipality-days", "Identical (%)", "Correlation",
+                    "Mean difference, all − opr (ppb)", "95th percentile of absolute difference (ppb)"))
+```
+
+```{r}
+#| label: tbl-stations
+#| tbl-cap: "Stations behind the ozone value, by version (share of municipality-days, %)."
+station_counts <- rbind(
+  versions[, .(version = "opr", stations = o3_n_stations_opr)],
+  versions[, .(version = "all", stations = o3_n_stations_all)]
+)[, .(n = .N), by = .(version, stations)]
+station_counts[, share := 100 * n / sum(n), by = version]
+kable(dcast(station_counts, stations ~ version, value.var = "share", fill = 0), digits = 1,
+      col.names = c("Stations", "all", "opr"))
+```
+
+## Ozone rebuilt from the hourly records {#sec-rebuilt-series}
+
+*Script: `Code/12_ozone_station_series.R`. Tables:
+`Output/Tables/ozone_station_hourly_status.csv` and `ozone_rebuilt_qc.csv`.*
+
+Script 12 rebuilds the station series from the hourly SINCA records, with no
+trimming and no imputation, as a 24-hour mean (`o3obs`) and as the daily maximum
+8-hour mean (`o3mda8`), and interpolates them with the data author's model and
+parameters. The rules are in
+[Ozone rebuilt from the hourly records](#sec-methods-rebuilt); the reasons and
+the comparison with the delivered series are in the
+[validation of the ozone exposure](#sec-ozone-validation).
+
+```{r}
+#| label: tbl-status
+#| tbl-cap: "Hourly ozone records of the study period by validation status (% of hours)."
+status <- read_table("ozone_station_hourly_status.csv")
+status_cols <- setdiff(names(status), c("sinca_id", "station"))
+status[, total := rowSums(.SD), .SDcols = status_cols]
+status_pct <- status[, c(.(station = station, hours = total),
+                         lapply(.SD, function(x) 100 * x / total)), .SDcols = status_cols]
+kable(status_pct, digits = 1, format.args = list(big.mark = ","))
+```
+
+```{r}
+#| label: tbl-rebuilt-qc
+#| tbl-cap: "Rebuilt municipal series: missing values and kriging diagnostics, all days of the dataset."
+kable(read_table("ozone_rebuilt_qc.csv"), format.args = list(big.mark = ","),
+      col.names = c("Series", "Method", "Rows", "Missing", "Below zero, set to missing",
+                    "Days with fewer than 3 stations", "Days with a variogram warning",
+                    "Days without a fitted variogram"))
+```
+
+# Exposure dataset, 2009-2020 {#sec-exposure-dataset}
+
+*Script: `Code/13_exposure_merge_qc.R`, from the datasets of scripts 10, 11
+and 12. Dataset: `Data/Derived/exposure_2009_2020.csv`. Table:
+`Output/Tables/exposure_codebook.csv`.*
+
+`Data/Derived/exposure_2009_2020.csv` has `r fmt(nrow(exposure))` rows and
+`r ncol(exposure)` columns. The data folders are not tracked by git; the file is
+rebuilt by the [scripts](#sec-scripts) of this deliverable.
+
+```{r}
+#| label: tbl-codebook
+#| tbl-cap: "Codebook of the exposure dataset. Missing counts refer to all days of the dataset."
+codebook <- read_table("exposure_codebook.csv")
+kableExtra::scroll_box(
+  kableExtra::kable_styling(kable(codebook, format = "html", format.args = list(big.mark = ","),
+                                  col.names = c("Variable", "Description", "Missing")),
+                            bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "420px"
+)
+```
+
+```{r}
+#| label: hot30
+#| include: false
+# Quoted in "Points to settle", at the end of the page
+hot30 <- analysis[, .(share = 100 * mean(hot_30c)), by = municipality]
+hot30_most <- hot30[which.max(share), sprintf("%s%% of the warm-season days in %s", fmt(share), municipality)]
+hot30_least <- hot30[which.min(share), sprintf("%s%% in %s", fmt(share), municipality)]
+```
+
+# Validation of the ozone exposure {#sec-ozone-validation}
+
+```{r}
+#| label: setup-ozone-validation
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+fmt <- function(x, digits = 1) formatC(x, format = "f", digits = digits, big.mark = ",")
+study_years <- get_param("study", "years")
+warm_months <- get_param("study", "warm_season_months")
+
+station_daily <- fread(derived_path("ozone_station_daily.csv"), encoding = "UTF-8")
+station_daily[, date := as.Date(date)]
+author <- new.env()
+load(input_path("station_series"), envir = author)
+author_series <- as.data.table(sf::st_drop_geometry(author$imputed_series))[
+  , .(station, date, author_o3 = daily_o3)]
+inputs <- merge(station_daily, author_series, by = c("station", "date"), all = TRUE)
+inputs <- inputs[year(date) >= study_years[1] & year(date) <= study_years[2]]
+inputs[, warm_season := is_warm_season(date, warm_months)]
+
+by_station <- read_table("validation_inputs_by_station.csv")
+by_level <- read_table("validation_inputs_by_level.csv")
+loso <- read_table("validation_loso_overall.csv")
+loso_common <- read_table("validation_loso_common.csv")
+loso_station <- read_table("validation_loso_by_station.csv")
+loso_high <- read_table("validation_loso_high_ozone.csv")
+municipal_level <- read_table("validation_municipal_by_level.csv")
+municipal_flags <- read_table("validation_municipal_flags.csv")
+cams <- read_table("validation_cams_correlation.csv")
+
+metric_label <- c(mean24 = "24-hour mean", mda8 = "MDA8")
+method_label <- c(idw = "IDW", ok = "Ordinary kriging")
+all_warm <- by_station[period == "warm season" & station == "All stations"]
+top <- by_level[level == "D10"]
+```
+
+## What is validated
+
+*Scripts: `Code/12_ozone_station_series.R` (station series and rebuilt
+municipal series), `Code/14_interpolation_validation.R` (cross-validation
+predictions), `Code/16_reanalysis_comparison.R` (reanalysis) and
+`Code/17_validation_summary.R` (tables). Each part names its tables.*
+
+The ozone exposure of the study is a daily value per municipality, interpolated
+from the monitoring stations of the SINCA network. Three things can go wrong on
+the way from the monitors to that value, and each is examined here:
+
+A. **The station inputs.** Are the station series that feed the interpolation
+   faithful to the measurements?
+B. **The interpolation model.** How well do inverse distance weighting (IDW)
+   and ordinary kriging predict ozone at a place without a monitor?
+C. **The municipal series.** How much do the delivered series differ from
+   series rebuilt from the measurements, in particular on high-ozone days?
+
+A last section compares the series with an independent source, the CAMS
+reanalysis, which assimilates satellite ozone retrievals.
+
+The delivered series comes from `pollution-interpolation-kriging-idw`. Its
+station inputs are hourly SINCA records trimmed at their 1st and 99th
+percentiles, averaged over the day when at least 12 hours are valid, and
+completed by imputation. Its interpolation uses IDW (power 2, at most 5
+stations within 15 km) and ordinary kriging with a variogram fitted every day.
+The validation uses the hourly SINCA records as published, with the validation
+status of every record, for the 11 ozone stations of the Metropolitan Region.
+
+## A. Station inputs {#sec-validation-inputs}
+
+*Script: `Code/17_validation_summary.R`, from
+`Data/Derived/ozone_station_daily.csv` (`Code/12_ozone_station_series.R`) and
+the station series of the data author. Tables:
+`Output/Tables/validation_inputs_by_station.csv` and
+`validation_inputs_by_level.csv`. The scatter plot is computed in this page
+from the same two series.*
+
+The station series published with the interpolation code (2009-2020) are
+compared, station by station and day by day, with the 24-hour mean computed
+from the validated hourly records with the same rule of at least 12 valid
+hours. A station-day is *identical* when the two values agree, *modified* when
+both exist and differ, and has *no validated daily mean* when the author's
+series holds a value that the validated records cannot produce (imputed, or
+built on records never validated).
+
+```{r}
+#| label: tbl-inputs
+#| tbl-cap: "Author's station series against the validated hourly records, warm seasons 2009-2020."
+kable(by_station[period == "warm season",
+                 .(station, station_days, identical_pct, modified_pct, no_validated_mean_pct,
+                   mean_observed, mean_author_same_days, mean_change_when_modified)],
+      digits = 1, format.args = list(big.mark = ","),
+      col.names = c("Station", "Station-days", "Identical (%)", "Modified (%)",
+                    "No validated daily mean (%)", "Observed mean (ppb)",
+                    "Author's mean, same days (ppb)", "Mean change when modified (ppb)"))
+```
+
+In the warm season `r fmt(all_warm$modified_pct)`% of the station-days were
+modified and `r fmt(all_warm$no_validated_mean_pct)`% have no validated daily
+mean. The modifications are not spread evenly: they concentrate on the days
+with most ozone.
+
+```{r}
+#| label: fig-level
+#| fig-cap: "Author's station series against the observed 24-hour mean, by tenths of the observed value. Warm-season station-days with both values."
+#| fig-height: 3.8
+level_long <- melt(by_level[, .(level, `Observed` = observed_mean24, `Author's series` = author_mean)],
+                   id.vars = "level", variable.name = "series", value.name = "ozone")
+level_long[, level := factor(level, levels = paste0("D", 1:10))]
+ggplot(level_long, aes(level, ozone, colour = series, group = series)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  scale_colour_manual(values = c("Observed" = "#2a78d6", "Author's series" = "#eb6834")) +
+  labs(x = "Tenth of the observed 24-hour mean (D1 lowest, D10 highest)",
+       y = "Ozone, 24-hour mean (ppb)", colour = NULL)
+```
+
+```{r}
+#| label: tbl-level
+#| tbl-cap: "Values behind the figure, with the observed MDA8 of the same days and the share of modified station-days."
+kable(by_level, digits = 1, format.args = list(big.mark = ","),
+      col.names = c("Tenth", "Station-days", "Observed 24-hour mean (ppb)", "Observed MDA8 (ppb)",
+                    "Author's mean (ppb)", "Difference (ppb)", "Modified (%)"))
+```
+
+On the tenth of station-days with most ozone the author's series is
+`r fmt(abs(top$difference))` ppb lower than the measurements
+(`r fmt(top$author_mean)` against `r fmt(top$observed_mean24)` ppb, a
+`r fmt(100 * abs(top$difference) / top$observed_mean24, 0)`% reduction), and
+`r fmt(top$modified_pct, 0)`% of those station-days were modified. This is what
+trimming the hourly values at their 99th percentile does to ozone: the hours it
+removes are the afternoon peaks of the hottest days, so the daily mean of
+exactly those days is pulled down. The trimming flattens the upper tail of the
+exposure that the study is about.
+
+```{r}
+#| label: fig-scatter
+#| fig-cap: "Author's station series against the observed 24-hour mean, warm-season station-days 2009-2020. The line is equality."
+#| fig-height: 4.4
+#| fig-width: 5.4
+both <- inputs[warm_season == TRUE & !is.na(author_o3) & !is.na(mean24)]
+ggplot(both, aes(mean24, author_o3)) +
+  geom_bin2d(bins = 80) +
+  geom_abline(colour = ink$primary, linewidth = 0.4) +
+  scale_fill_magnitude(name = "Station-days", trans = "log10") +
+  coord_equal() +
+  labs(x = "Observed 24-hour mean (ppb)", y = "Author's series (ppb)") +
+  theme(legend.position = "right", legend.justification = "center")
+```
+
+### Records that were never validated
+
+*Computed in this page from the hourly file of the station, with
+`read_sinca_hourly()` and `daily_from_hourly()` of `Code/01_functions.R`.*
+
+SINCA marks every hourly record as validated, preliminary or not validated.
+Most records of the study period are validated, but some station-periods were
+never validated, and one of them is an evident instrument failure.
+
+```{r}
+#| label: fig-independencia
+#| fig-cap: "Independencia, 2015-2017, monthly mean of the 24-hour ozone: hourly records of any status, the author's series, and the mean of the other stations in the author's series. Shaded: months in which Independencia has no validated record."
+#| fig-height: 3.8
+rules <- get_param("station_series")
+codes <- fread(here::here(rules$stations_file), encoding = "UTF-8")
+any_status <- daily_from_hourly(
+  read_sinca_hourly(file.path(input_path("sinca_hourly_dir"),
+                              sprintf(rules$hourly_file_pattern, codes[station == "Independencia", sinca_id])),
+                    accepted_status = c("validated", "preliminary", "not_validated")),
+  min_hours = rules$min_valid_hours_day, mda8_min_hours = rules$mda8_min_hours_window,
+  mda8_min_windows = rules$mda8_min_windows_day
+)[, .(date, any_status = mean24)]
+window <- merge(inputs[date >= as.Date("2015-01-01") & date <= as.Date("2017-12-31")],
+                any_status, by = "date", all.x = TRUE)
+window[, month_start := as.Date(format(date, "%Y-%m-01"))]
+monthly <- window[, .(
+  `Independencia, records of any status` = mean(any_status[station == "Independencia"], na.rm = TRUE),
+  `Independencia, author's series` = mean(author_o3[station == "Independencia"], na.rm = TRUE),
+  `Other stations, author's series` = mean(author_o3[station != "Independencia"], na.rm = TRUE),
+  validated_days = sum(station == "Independencia" & !is.na(mean24))
+), by = month_start]
+shade <- monthly[validated_days == 0, .(xmin = month_start, xmax = month_start + 31)]
+monthly_long <- melt(monthly, id.vars = "month_start", measure.vars = 2:4,
+                     variable.name = "series", value.name = "ozone")
+no_validated <- inputs[station == "Independencia" & year(date) == 2016 & is.na(mean24) & !is.na(author_o3), .N]
+ggplot(monthly_long) +
+  geom_rect(data = shade, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+            fill = ink$grid, alpha = 0.8) +
+  geom_line(aes(month_start, ozone, colour = series), linewidth = 0.8) +
+  scale_colour_manual(values = c("Independencia, records of any status" = "#1baf7a",
+                                 "Independencia, author's series" = "#eb6834",
+                                 "Other stations, author's series" = ink$muted)) +
+  labs(x = NULL, y = "Ozone, 24-hour mean (ppb)", colour = NULL) +
+  guides(colour = guide_legend(nrow = 3))
+```
+
+From February 2016 the hourly records of the Independencia monitor fall far
+below every other station and none of them was ever validated. The author's
+series does not follow them: for the `r no_validated` days of 2016 without a
+validated daily mean it holds imputed values, so that for most of that year
+the station enters the interpolation as an estimate and not as a measurement.
+The series rebuilt here use validated records only (`accepted_status` in the
+configuration) and leave a station out of the days for which it has none, at
+the cost of about 3% of the warm-season station-days.
+
+## B. The interpolation model {#sec-validation-model}
+
+*Scripts: `Code/14_interpolation_validation.R` (predictions, in
+`Data/Derived/validation_loso_predictions.csv`) and
+`Code/17_validation_summary.R`. Tables: `Output/Tables/validation_loso_overall.csv`,
+`validation_loso_common.csv`, `validation_loso_by_station.csv` and
+`validation_loso_high_ozone.csv`.*
+
+Leave-one-station-out cross-validation: for every warm-season day of 2009-2020
+each station is removed in turn, the model is fitted to the remaining stations
+with the author's function and parameters, and the removed station is
+predicted. The observed values are the validated 24-hour mean and MDA8.
+
+```{r}
+#| label: tbl-loso
+#| tbl-cap: "Leave-one-station-out cross-validation, warm seasons 2009-2020. R² is the coefficient of determination against the 1:1 line."
+loso_table <- copy(loso)[, `:=`(metric = metric_label[metric], method = method_label[method])]
+kable(loso_table[, .(metric, method, n, mean_observed, bias, mae, rmse, nrmse_pct, pearson_r, r2,
+                     not_predicted_pct, interval_coverage_pct)],
+      digits = c(0, 0, 0, 1, 2, 2, 2, 1, 3, 3, 1, 1), format.args = list(big.mark = ","),
+      col.names = c("Metric", "Method", "Station-days", "Observed mean (ppb)", "Bias (ppb)",
+                    "MAE (ppb)", "RMSE (ppb)", "RMSE (% of mean)", "Pearson r", "R²",
+                    "Not predicted (%)", "Inside the 95% kriging interval (%)"))
+```
+
+IDW gives no value when no station lies within its 15 km radius, which is
+always the case for Talagante and sometimes for other stations when their
+neighbours have no validated record; kriging always gives one. The table above
+therefore compares the methods on different station-days. On the station-days
+that both methods predict:
+
+```{r}
+#| label: tbl-loso-common
+#| tbl-cap: "The two methods on the same station-days."
+common_table <- copy(loso_common)[, `:=`(metric = metric_label[metric], method = method_label[method])]
+kable(common_table[order(metric, method), .(metric, method, n, bias, mae, rmse, nrmse_pct, pearson_r, r2)],
+      digits = c(0, 0, 0, 2, 2, 2, 1, 3, 3), format.args = list(big.mark = ","),
+      col.names = c("Metric", "Method", "Station-days", "Bias (ppb)", "MAE (ppb)", "RMSE (ppb)",
+                    "RMSE (% of mean)", "Pearson r", "R²"))
+```
+
+```{r}
+#| label: fig-loso-station
+#| fig-cap: "Cross-validation error by station: RMSE as a percentage of the station mean."
+#| fig-height: 4.6
+station_plot <- copy(loso_station)[, `:=`(metric = metric_label[metric], method = method_label[method])]
+order_station <- station_plot[metric == "MDA8" & method == "IDW"][order(nrmse_pct), station]
+ggplot(station_plot, aes(nrmse_pct, factor(station, levels = order_station), colour = method)) +
+  geom_point(size = 2.4) +
+  facet_wrap(~metric) +
+  scale_colour_manual(values = colour_method) +
+  labs(x = "RMSE (% of the station mean)", y = NULL, colour = NULL)
+```
+
+```{r}
+#| label: tbl-loso-station
+#| tbl-cap: "Cross-validation by station."
+kableExtra::scroll_box(
+  kableExtra::kable_styling(
+    kable(station_plot[order(metric, station, method),
+                       .(metric, station, method, n, mean_observed, bias, rmse, pearson_r, r2)],
+          format = "html", digits = c(0, 0, 0, 0, 1, 2, 2, 3, 3), format.args = list(big.mark = ","),
+          col.names = c("Metric", "Station", "Method", "Station-days", "Observed mean (ppb)",
+                        "Bias (ppb)", "RMSE (ppb)", "Pearson r", "R²")),
+    bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "380px"
+)
+```
+
+### High-ozone days
+
+The analysis classifies days as high ozone against a percentile of each place.
+The same is done here with the predictions: a station-day is predicted high
+when the prediction exceeds the percentile of the predictions at that station.
+
+```{r}
+#| label: tbl-loso-high
+#| tbl-cap: "High-ozone days: predicted against observed classification at the station left out."
+high_table <- copy(loso_high)[, `:=`(metric = metric_label[metric], method = method_label[method])]
+kable(high_table[order(metric, percentile, method),
+                 .(metric, percentile = paste0("> P", percentile), method, n,
+                   sensitivity = 100 * sensitivity, specificity = 100 * specificity,
+                   agreement = 100 * agreement, kappa)],
+      digits = c(0, 0, 0, 0, 1, 1, 1, 2), format.args = list(big.mark = ","),
+      col.names = c("Metric", "Cut-off", "Method", "Station-days", "Sensitivity (%)",
+                    "Specificity (%)", "Agreement (%)", "Kappa"))
+```
+
+## C. Delivered and rebuilt municipal series {#sec-validation-municipal}
+
+*Scripts: `Code/12_ozone_station_series.R` (rebuilt series) and
+`Code/17_validation_summary.R`. Tables: `Output/Tables/validation_reproduction.csv`,
+`validation_municipal_by_level.csv` and `validation_municipal_flags.csv`.*
+
+Script 12 interpolates the validated station values to the 33 municipalities
+with the same model: `o3obs` is the 24-hour mean and `o3mda8` the daily maximum
+8-hour mean.
+
+First, a reproduction test. On the days when every station value of the
+author's series equals the validated 24-hour mean, the two municipal series
+have the same inputs and should coincide if this project runs the same
+interpolation.
+
+```{r}
+#| label: tbl-reproduction
+#| tbl-cap: "Rebuilt against delivered municipal ozone on the warm-season days with identical station inputs."
+reproduction <- read_table("validation_reproduction.csv")
+kable(reproduction[, .(method = method_label[method], days, municipality_days, within_0.001_ppb_pct,
+                       median_abs_difference, max_abs_difference)],
+      digits = c(0, 0, 0, 1, 6, 4), format.args = list(big.mark = ","),
+      col.names = c("Method", "Days", "Municipality-days", "Within 0.001 ppb (%)",
+                    "Median absolute difference (ppb)", "Largest absolute difference (ppb)"))
+```
+
+With the same inputs this project returns the delivered values: all of the IDW
+values and nearly all of the kriging values agree to the third decimal (the
+daily variogram fit makes kriging sensitive to the last digits of its inputs).
+The differences shown in the rest of this section therefore come from the
+station inputs.
+
+```{r}
+#| label: fig-municipal-level
+#| fig-cap: "Delivered against rebuilt 24-hour mean by tenths of the rebuilt value, municipality-days of the warm seasons 2009-2020."
+#| fig-height: 3.8
+ml <- melt(municipal_level[, .(method = method_label[method], level,
+                               `Rebuilt from validated records` = rebuilt_mean24,
+                               `Delivered` = delivered_mean24)],
+           id.vars = c("method", "level"), variable.name = "series", value.name = "ozone")
+ml[, level := factor(level, levels = paste0("D", 1:10))]
+ggplot(ml, aes(level, ozone, colour = series, group = series)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  facet_wrap(~method) +
+  scale_colour_manual(values = c("Rebuilt from validated records" = "#2a78d6", "Delivered" = "#eb6834")) +
+  labs(x = "Tenth of the rebuilt 24-hour mean (D1 lowest, D10 highest)",
+       y = "Ozone, 24-hour mean (ppb)", colour = NULL)
+```
+
+```{r}
+#| label: tbl-municipal-level
+#| tbl-cap: "Values behind the figure, with the rebuilt MDA8 of the same municipality-days."
+kable(municipal_level[, .(method = method_label[method], level, municipality_days, rebuilt_mean24,
+                          delivered_mean24, difference, rebuilt_mda8)],
+      digits = 1, format.args = list(big.mark = ","),
+      col.names = c("Method", "Tenth", "Municipality-days", "Rebuilt 24-hour mean (ppb)",
+                    "Delivered (ppb)", "Difference (ppb)", "Rebuilt MDA8 (ppb)"))
+```
+
+### Does the choice of series change who is exposed?
+
+```{r}
+#| label: tbl-flags
+#| tbl-cap: "Agreement of the high-ozone flags between series, municipality-days of the warm seasons 2009-2020. Sensitivity and specificity take the first series as reference."
+series_label <- c(o3 = "Delivered 24-hour mean", o3obs = "Rebuilt 24-hour mean", o3mda8 = "Rebuilt MDA8")
+flags <- copy(municipal_flags)[, `:=`(reference = series_label[reference], compared = series_label[compared],
+                                      method = method_label[method])]
+kable(flags[, .(reference, compared, method, percentile = paste0("> P", percentile), pearson_r,
+                sensitivity = 100 * sensitivity, specificity = 100 * specificity,
+                agreement = 100 * agreement, kappa)],
+      digits = c(0, 0, 0, 0, 2, 1, 1, 1, 2),
+      col.names = c("Reference", "Compared", "Method", "Cut-off", "Pearson r", "Sensitivity (%)",
+                    "Specificity (%)", "Agreement (%)", "Kappa"))
+```
+
+## An independent source: the CAMS reanalysis {#sec-validation-cams}
+
+*Script: `Code/16_reanalysis_comparison.R`. Tables:
+`Output/Tables/validation_cams_correlation.csv` and `validation_cams_cells.csv`
+(the cells of the reanalysis that hold the municipalities).*
+
+No satellite measures ozone at the surface with the resolution of a city: the
+ozone column seen from space is dominated by the stratosphere. The closest
+independent source is a reanalysis that assimilates the satellite retrievals
+into a chemistry model. CAMS EAC4 has cells of 0.75 degrees, so the 33
+municipalities fall in two cells and the comparison says nothing about
+differences between municipalities. What it can check is whether the
+day-to-day course of ozone over the city in the station-based series is also
+seen by a source that does not use the monitors.
+
+```{r}
+#| label: tbl-cams
+#| tbl-cap: "City-wide daily ozone against CAMS EAC4, warm seasons 2009-2020. Anomalies are deviations from the mean of each calendar month."
+cams_series <- c(o3_idw = "Delivered 24-hour mean, IDW", o3_ok = "Delivered 24-hour mean, kriging",
+                 o3obs_idw = "Rebuilt 24-hour mean, IDW", o3obs_ok = "Rebuilt 24-hour mean, kriging",
+                 o3mda8_idw = "Rebuilt MDA8, IDW", o3mda8_ok = "Rebuilt MDA8, kriging")
+cams_table <- copy(cams)[, `:=`(series = cams_series[series],
+                                cams = fifelse(cams == "cams_mean24", "Daily mean", "Afternoon (15 and 18 h)"))]
+kable(cams_table, digits = c(0, 0, 0, 1, 1, 2, 2), format.args = list(big.mark = ","),
+      col.names = c("Station-based series", "CAMS value", "Days", "Series mean (ppb)",
+                    "CAMS mean (ppb)", "Correlation, daily values", "Correlation, anomalies"))
+```
+
+CAMS is a weak reference for surface ozone in a basin that one of its cells
+covers almost entirely, mountains included: its values are much higher than
+the monitors and the correlations are modest. Within those limits, the series
+rebuilt from validated records follow it more closely than the delivered
+series, and the MDA8 more closely than the 24-hour mean.
+
+## What this means for the analysis {#sec-validation-conclusions}
+
+*Drawn from the tables of the parts above; the number of stations behind the
+delivered series comes from the exposure dataset.*
+
+```{r}
+#| label: conclusions
+# Stations behind the delivered ozone on the days of analysis
+stations_per_day <- fread(derived_path("exposure_2009_2020.csv"),
+                          select = c("in_study_period", "warm_season", "o3_n_stations"))[
+  in_study_period == TRUE & warm_season == TRUE, range(o3_n_stations)]
+common_wide <- dcast(loso_common, metric ~ method, value.var = c("rmse", "r2"))
+mda8_flags <- municipal_flags[reference == "o3mda8" & compared == "o3" & method == "idw"]
+coverage <- loso[method == "ok", .(metric, interval_coverage_pct)]
+las_condes <- loso_station[station == "Las Condes" & metric == "mda8" & method == "ok"]
+top_municipal <- municipal_level[method == "idw" & level == "D10"]
+```
+
+1. **The delivered series understates the days with most ozone.** Its station
+   inputs are `r fmt(abs(top$difference))` ppb below the measurements on the
+   highest tenth of station-days, and its municipal values are
+   `r fmt(abs(top_municipal$difference))` ppb below the rebuilt ones on the
+   highest tenth of municipality-days. A study of high-ozone days and of their
+   interaction with heat should not use inputs trimmed at the 99th percentile.
+2. **Station-days without a validated measurement are estimates.** In the
+   delivered series `r fmt(all_warm$no_validated_mean_pct)`% of the warm-season
+   station-days have no validated daily mean; the Independencia monitor, which
+   failed in 2016, is carried by imputed values for most of that year. The
+   rebuilt series use validated records only.
+3. **The metric matters.** The plan names the MDA8; the delivered series is a
+   24-hour mean. Among the municipality-days above the 75th percentile of
+   MDA8, the delivered 24-hour mean flags
+   `r fmt(100 * mda8_flags[percentile == 75, sensitivity], 0)`% as high ozone
+   (kappa `r fmt(mda8_flags[percentile == 75, kappa], 2)`).
+4. **Interpolation method.** On the same station-days ordinary kriging has
+   the lower cross-validation error for both metrics: RMSE
+   `r fmt(common_wide[metric == "mean24", rmse_ok], 2)` against
+   `r fmt(common_wide[metric == "mean24", rmse_idw], 2)` ppb for the 24-hour
+   mean and `r fmt(common_wide[metric == "mda8", rmse_ok], 2)` against
+   `r fmt(common_wide[metric == "mda8", rmse_idw], 2)` ppb for the MDA8. The
+   difference is clear for the 24-hour mean and small for the MDA8. The kriging
+   intervals contain the left-out observation
+   `r paste(sprintf("%s%% of the time for the %s", fmt(coverage$interval_coverage_pct, 0), metric_label[coverage$metric]), collapse = " and ")`,
+   against a nominal 95%, so they should not be read as measurement
+   uncertainty. The working value of the configuration is still IDW; this
+   result argues for kriging and the choice is open.
+5. **What interpolation cannot fix.** Between `r stations_per_day[1]` and
+   `r stations_per_day[2]` monitors a day describe 33 municipalities in the
+   delivered series, and the error is far from uniform. Las Condes, the station
+   with most ozone, cannot be predicted from the others (bias
+   `r fmt(las_condes$bias)` ppb when it is left out): the eastern
+   municipalities depend on that single monitor. The cross-validation error is
+   the error at a monitored site when its own monitor is ignored; it is the
+   best available estimate of the error in municipalities without a monitor,
+   not a guarantee.
+
+The exposure dataset keeps the three series (`o3`, `o3obs`, `o3mda8`) so that
+the choice can be made by the principal investigator and its effect shown as a
+sensitivity analysis. The working value in the configuration is still the
+delivered series.
+
+# Municipal maps and time series of single and compound exposure {#sec-maps-trends}
+
+```{r}
+#| label: setup-maps-trends
+#| include: false
+source(here::here("Code", "00_setup.R"))
+source(here::here("Code", "01_functions.R"))
+source(here::here("Code", "02_plot_style.R"))
+library(knitr)
+library(sf)
+theme_set(theme_report())
+options(knitr.kable.NA = "")
+
+read_table <- function(file) fread(file.path(dir_tables, file), encoding = "UTF-8")
+exposure <- fread(derived_path("exposure_2009_2020.csv"), encoding = "UTF-8")
+exposure[, date := as.Date(date)]
+analysis <- exposure[in_study_period == TRUE & warm_season == TRUE]
+
+heatwave_main <- get_param("models", "heatwave_main")
+ozone_main <- paste0(get_param("air_pollution", "ozone_series_main"), "_",
+                     get_param("air_pollution", "interpolation_method_main"))
+cutoff_main <- get_param("models", "ozone_cutoff_main")
+ozone_flag_main <- paste0(ozone_main, "_gt_p", cutoff_main)
+
+shapes_env <- new.env()
+load(input_path("municipality_shapes"), envir = shapes_env)
+shapes <- shapes_env$comunas_santiago[, c("cod_comuna", "comuna")]
+shapes$com <- as.integer(shapes$cod_comuna)
+stopifnot(setequal(shapes$com, study_municipalities()$code))
+
+map_values <- function(values, value_column, title, legend, hue = "blue", digits = 1) {
+  data <- merge(shapes, values, by = "com")
+  ggplot(data) +
+    geom_sf(aes(fill = .data[[value_column]]), colour = "#ffffff", linewidth = 0.25) +
+    scale_fill_magnitude(name = legend, hue = hue,
+                         labels = function(x) formatC(x, format = "f", digits = digits)) +
+    labs(title = title) +
+    theme_map()
+}
+fmt <- function(x, digits = 0) formatC(x, format = "f", digits = digits, big.mark = ",")
+```
+
+## Scope
+
+Distribution of the single exposures (temperature, heatwaves, ozone) and of the
+compound exposure (a heatwave day with high ozone) across the 33 municipalities
+and the warm seasons of 2009 to 2020. All figures use the days between
+1 November and 31 March.
+
+Where one definition has to be shown, this section uses the working definitions of
+`config/config.yml`: heatwave `r heatwave_main`, ozone series `r ozone_main`,
+high ozone above the `r cutoff_main`th percentile of the municipality. They are
+working values, not final choices; the grid of definitions covers every
+combination.
+
+The first sections describe the municipalities as a group. The series of every
+municipality, and of the mean of the 33, over the whole study period are in
+[Time series of every municipality and of their mean](#sec-series-municipalities).
+
+## Single exposures
+
+*Computed in this page from the exposure dataset
+(`Code/13_exposure_merge_qc.R`). The maps use the municipal polygons of the
+interpolation repository.*
+
+```{r}
+#| label: tbl-descriptive
+#| tbl-cap: "Exposure variables over the municipality-days of the warm seasons 2009-2020."
+variables <- c(tmax = "Maximum temperature (°C)", tmin = "Minimum temperature (°C)",
+               o3_idw = "Ozone, delivered 24-hour mean, IDW (ppb)",
+               o3_ok = "Ozone, delivered 24-hour mean, kriging (ppb)",
+               o3obs_idw = "Ozone, rebuilt 24-hour mean, IDW (ppb)",
+               o3mda8_idw = "Ozone, rebuilt MDA8, IDW (ppb)",
+               o3mda8_ok = "Ozone, rebuilt MDA8, kriging (ppb)",
+               pm25_idw = "PM2.5, IDW (µg/m³)", no2_idw = "Nitrogen dioxide, IDW (ppb)",
+               hum_idw = "Relative humidity, IDW (%)")
+descriptive <- rbindlist(lapply(names(variables), function(v) {
+  x <- analysis[[v]]
+  q <- quantile(x, c(0.05, 0.25, 0.5, 0.75, 0.95), na.rm = TRUE)
+  data.table(variable = variables[[v]], n = sum(!is.na(x)), missing = sum(is.na(x)),
+             mean = mean(x, na.rm = TRUE), sd = sd(x, na.rm = TRUE),
+             p5 = q[1], p25 = q[2], median = q[3], p75 = q[4], p95 = q[5])
+}))
+kable(descriptive, digits = 1, format.args = list(big.mark = ","),
+      col.names = c("Variable", "N", "Missing", "Mean", "SD", "P5", "P25", "Median", "P75", "P95"))
+```
+
+### Maps
+
+```{r}
+#| label: fig-map-single
+#| fig-cap: "Mean maximum temperature, heatwave days per year and mean ozone by municipality, warm seasons 2009-2020."
+#| fig-height: 9
+#| fig-width: 9
+by_mun <- analysis[, .(
+  tmax = mean(tmax), hw_days = sum(get(heatwave_main)) / 12,
+  hot30 = sum(hot_30c) / 12,
+  o3 = mean(get(ozone_main), na.rm = TRUE), mda8 = mean(o3mda8_idw, na.rm = TRUE)
+), by = com]
+patchwork::wrap_plots(
+  map_values(by_mun, "tmax", "Mean maximum temperature", "°C", hue = "orange"),
+  map_values(by_mun, "hw_days", paste0("Heatwave days per year (", heatwave_main, ")"),
+             "Days per year", hue = "orange"),
+  map_values(by_mun, "o3", paste0("Mean ozone, 24-hour mean (", ozone_main, ")"), "ppb"),
+  map_values(by_mun, "mda8", "Mean ozone, MDA8 (o3mda8_idw)", "ppb"),
+  ncol = 2
+)
+```
+
+```{r}
+#| label: tbl-by-municipality
+#| tbl-cap: "Values of the maps, with the number of days above 30 °C per year."
+table_mun <- merge(study_municipalities(), by_mun, by.x = "code", by.y = "com")
+kableExtra::scroll_box(
+  kableExtra::kable_styling(
+    kable(table_mun, format = "html", digits = 1,
+          col.names = c("Code", "Municipality", "Mean maximum temperature (°C)",
+                        "Heatwave days per year", "Days above 30 °C per year",
+                        "Ozone, 24-hour mean (ppb)", "Ozone, MDA8 (ppb)")),
+    bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "380px"
+)
+```
+
+### Time series {#sec-time-series}
+
+```{r}
+#| label: fig-annual
+#| fig-cap: "Warm-season means by calendar year. Line: median of the 33 municipalities; band: range between municipalities."
+#| fig-height: 6.5
+annual <- analysis[, .(tmax = mean(tmax), o3 = mean(get(ozone_main), na.rm = TRUE),
+                       mda8 = mean(o3mda8_idw, na.rm = TRUE)), by = .(com, year)]
+annual_long <- melt(annual, id.vars = c("com", "year"))
+annual_long[, variable := factor(variable, levels = c("tmax", "o3", "mda8"),
+  labels = c("Maximum temperature (°C)", "Ozone, 24-hour mean (ppb)", "Ozone, MDA8 (ppb)"))]
+bands <- annual_long[, .(median = median(value), low = min(value), high = max(value)),
+                     by = .(variable, year)]
+ggplot(bands, aes(year)) +
+  geom_ribbon(aes(ymin = low, ymax = high), fill = ramp_blue[2], alpha = 0.6) +
+  geom_line(aes(y = median), colour = ramp_blue[6], linewidth = 0.8) +
+  geom_point(aes(y = median), colour = ramp_blue[6], size = 1.8) +
+  facet_wrap(~variable, ncol = 1, scales = "free_y") +
+  scale_x_continuous(breaks = 2009:2020) +
+  labs(x = NULL, y = NULL,
+       caption = "Calendar years: January to March and November to December of each year.")
+```
+
+```{r}
+#| label: fig-heatwave-years
+#| fig-cap: "Heatwave days per municipality by calendar year, percentile definitions with two or more consecutive days."
+#| fig-height: 3.8
+hw_years <- melt(analysis[, lapply(.SD, function(x) sum(x) / uniqueN(com)), by = year,
+                          .SDcols = c("hw_p90_2d", "hw_p95_2d", "hw_p99_2d")],
+                 id.vars = "year", variable.name = "indicator", value.name = "days")
+hw_years[, indicator := factor(indicator, levels = c("hw_p90_2d", "hw_p95_2d", "hw_p99_2d"),
+                               labels = c("> P90, 2 days", "> P95, 2 days", "> P99, 2 days"))]
+ggplot(hw_years, aes(year, days, colour = indicator)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.8) +
+  scale_colour_manual(values = c("> P90, 2 days" = "#2a78d6", "> P95, 2 days" = "#eb6834",
+                                 "> P99, 2 days" = "#1baf7a")) +
+  scale_x_continuous(breaks = 2009:2020) +
+  labs(x = NULL, y = "Heatwave days per municipality", colour = NULL)
+```
+
+```{r}
+#| label: fig-months
+#| fig-cap: "Seasonal profile: mean of the 33 municipalities by month of the warm season, 2009-2020."
+#| fig-height: 3.6
+monthly <- analysis[, .(tmax = mean(tmax), o3 = mean(get(ozone_main), na.rm = TRUE),
+                        mda8 = mean(o3mda8_idw, na.rm = TRUE),
+                        hw = 100 * mean(get(heatwave_main))), by = .(month = month(date))]
+monthly_long <- melt(monthly, id.vars = "month")
+monthly_long[, month := factor(month, levels = c(11, 12, 1, 2, 3),
+                               labels = c("Nov", "Dec", "Jan", "Feb", "Mar"))]
+monthly_long[, variable := factor(variable, levels = c("tmax", "hw", "o3", "mda8"),
+  labels = c("Maximum temperature (°C)", "Heatwave days (% of days)",
+             "Ozone, 24-hour mean (ppb)", "Ozone, MDA8 (ppb)"))]
+ggplot(monthly_long, aes(month, value, group = 1)) +
+  geom_line(colour = ramp_blue[6], linewidth = 0.8) +
+  geom_point(colour = ramp_blue[6], size = 1.8) +
+  facet_wrap(~variable, nrow = 1, scales = "free_y") +
+  labs(x = NULL, y = NULL)
+```
+
+## Compound exposure
+
+*Computed in this page from the exposure dataset, with `compound_category()`
+of `Code/01_functions.R`. The definition is in
+[Compound exposure](#sec-methods-compound).*
+
+A municipality-day belongs to one of four categories: neither exposure (E00),
+heatwave only (E10), high ozone only (E01), or both (E11).
+
+```{r}
+#| label: compound-main
+analysis[, category := compound_category(get(heatwave_main), get(ozone_flag_main))]
+labels <- c(E00 = "Neither", E01 = "High ozone only", E10 = "Heatwave only",
+            E11 = "Heatwave and high ozone")
+analysis[, category_label := factor(labels[as.character(category)], levels = labels)]
+overall <- analysis[!is.na(category), .(days = .N), keyby = category_label]
+overall[, share := 100 * days / sum(days)]
+p_hw <- analysis[!is.na(category), mean(get(heatwave_main))]
+p_oz <- analysis[!is.na(category), mean(get(ozone_flag_main))]
+p_both <- analysis[!is.na(category), mean(category == "E11")]
+```
+
+```{r}
+#| label: tbl-compound
+#| tbl-cap: "Municipality-days by compound exposure category, working definitions, warm seasons 2009-2020."
+kable(overall, digits = 1, format.args = list(big.mark = ","),
+      col.names = c("Category", "Municipality-days", "%"))
+```
+
+Heatwave days are `r fmt(100 * p_hw, 1)`% of the municipality-days and high-ozone
+days `r fmt(100 * p_oz, 1)`%. If the two were independent, `r fmt(100 * p_hw * p_oz, 1)`%
+of the days would have both; the observed share is `r fmt(100 * p_both, 1)`%,
+`r fmt(p_both / (p_hw * p_oz), 1)` times the expected one.
+`r fmt(100 * p_both / p_hw, 0)`% of the heatwave days are also high-ozone days.
+
+### Maps
+
+```{r}
+#| label: fig-map-compound
+#| fig-cap: "Compound exposure by municipality, working definitions, warm seasons 2009-2020. Left: days per year with a heatwave and high ozone. Right: share of heatwave days that are also high-ozone days."
+#| fig-height: 4.8
+#| fig-width: 9
+compound_mun <- analysis[!is.na(category), .(
+  compound_days = sum(category == "E11") / 12,
+  share_of_heatwave = 100 * sum(category == "E11") / sum(get(heatwave_main))
+), by = com]
+patchwork::wrap_plots(
+  map_values(compound_mun, "compound_days", "Compound days per year", "Days per year",
+             hue = "orange"),
+  map_values(compound_mun, "share_of_heatwave", "Heatwave days with high ozone", "%",
+             digits = 0),
+  ncol = 2
+)
+```
+
+### By year
+
+```{r}
+#| label: fig-compound-years
+#| fig-cap: "Exposed municipality-days by calendar year and category, working definitions, as days per municipality."
+#| fig-height: 3.8
+by_year <- analysis[!is.na(category) & category != "E00",
+                    .(days = .N / uniqueN(analysis$com)), by = .(year, category_label)]
+ggplot(by_year, aes(year, days, fill = category_label)) +
+  geom_col(width = 0.7, colour = ink$surface, linewidth = 0.4) +
+  scale_fill_manual(values = colour_compound, drop = TRUE) +
+  scale_x_continuous(breaks = 2009:2020) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +
+  labs(x = NULL, y = "Days per municipality", fill = NULL)
+```
+
+```{r}
+#| label: tbl-compound-years
+#| tbl-cap: "Days per municipality by calendar year and category."
+kable(dcast(by_year, year ~ category_label, value.var = "days", fill = 0), digits = 1)
+```
+
+### Across the grid of definitions {#sec-grid-definitions}
+
+*Script: `Code/13_exposure_merge_qc.R`. Tables:
+`Output/Tables/compound_frequency_by_municipality.csv` and
+`compound_frequency_by_year.csv`.*
+
+Share of municipality-days with both exposures, for the 15 heatwave definitions
+and the three ozone cut-offs, with the ozone series in use (`r ozone_main`).
+
+```{r}
+#| label: fig-grid
+#| fig-cap: "Compound days (% of municipality-days) by heatwave definition and ozone cut-off."
+#| fig-height: 5.6
+grid <- read_table("compound_frequency_by_municipality.csv")
+grid <- grid[grepl(paste0("^", ozone_main, "_gt_p"), ozone),
+             .(e11 = sum(e11), e10 = sum(e10), e01 = sum(e01), classified = sum(days - not_classified)),
+             by = .(heatwave, ozone)]
+grid[, `:=`(share = 100 * e11 / classified,
+            ratio = (e11 / classified) / (((e11 + e10) / classified) * ((e11 + e01) / classified)),
+            cutoff = paste0("> P", sub(".*_gt_p", "", ozone)))]
+grid[, heatwave := factor(heatwave, levels = rev(unique(heatwave)))]
+ggplot(grid, aes(cutoff, heatwave, fill = share)) +
+  geom_tile(colour = ink$surface, linewidth = 1) +
+  geom_text(aes(label = sprintf("%.1f", share),
+                colour = share > max(share) * 0.55), size = 3.2, show.legend = FALSE) +
+  scale_colour_manual(values = c(`TRUE` = "#ffffff", `FALSE` = ink$primary)) +
+  scale_fill_magnitude(name = "% of days", hue = "orange") +
+  labs(x = "Ozone cut-off (municipality percentile)", y = NULL) +
+  theme(panel.grid.major = element_blank(), legend.position = "right",
+        legend.justification = "center")
+```
+
+```{r}
+#| label: tbl-grid
+#| tbl-cap: "Compound exposure across the grid: days with both exposures, and the ratio of the observed share to the share expected if heatwaves and high ozone were independent."
+kableExtra::scroll_box(
+  kableExtra::kable_styling(
+    kable(grid[order(-as.integer(heatwave), cutoff),
+               .(heatwave, cutoff, e11, share, e10, e01, ratio)],
+          format = "html", digits = c(0, 0, 0, 2, 0, 0, 2), format.args = list(big.mark = ","),
+          col.names = c("Heatwave", "Ozone cut-off", "Compound days (E11)", "% of days",
+                        "Heatwave only (E10)", "High ozone only (E01)",
+                        "Observed / expected")),
+    bootstrap_options = c("striped", "condensed"), font_size = 12),
+  height = "420px"
+)
+```
+
+The frequency tables for every ozone series, by municipality and by year, are in
+`Output/Tables/compound_frequency_by_municipality.csv` and
+`Output/Tables/compound_frequency_by_year.csv`.
+
+## Time series of every municipality and of their mean {#sec-series-municipalities}
+
+*Script: `Code/18_exposure_time_series.R`. Tables, in `Output/Tables`:
+`series_daily_all_municipalities.csv`, `series_monthly_by_municipality.csv`
+and `series_annual_by_municipality.csv`. Figures, in `Output/Figures`:
+`series_1_daily_temperature_ozone` to `series_7_municipalities_heatwave_days`,
+each as PDF and as PNG at `r get_param("figures", "png_dpi")` dpi. The script
+writes the tables and draws every figure from them; this page shows the
+files.*
+
+```{r}
+#| label: setup-series
+#| include: false
+series_tables <- c(daily = "series_daily_all_municipalities.csv",
+                   monthly = "series_monthly_by_municipality.csv",
+                   annual = "series_annual_by_municipality.csv")
+series_names <- c("series_1_daily_temperature_ozone", "series_2_daily_compound_exposure",
+                  "series_3_monthly_by_municipality", "series_4_annual_by_municipality",
+                  "series_5_municipalities_temperature", "series_6_municipalities_ozone",
+                  "series_7_municipalities_heatwave_days")
+series_figure <- function(name) {
+  stopifnot(name %in% series_names)
+  file.path(dir_figures, paste0(name, ".png"))
+}
+needed <- c(file.path(dir_tables, series_tables), series_figure(series_names))
+if (!all(file.exists(needed))) {
+  stop("Files written by Code/18_exposure_time_series.R are missing:\n  ",
+       paste(needed[!file.exists(needed)], collapse = "\n  "),
+       "\nRun source(\"Code/run_all.R\"), or that script alone, before rendering this page.",
+       call. = FALSE)
+}
+series_daily <- read_table(series_tables[["daily"]])
+series_daily[, date := as.Date(date)]
+series_monthly <- read_table(series_tables[["monthly"]])
+series_annual <- read_table(series_tables[["annual"]])
+# The rows without a municipality code hold the mean of the municipalities
+annual_mean <- series_annual[is.na(com)]
+annual_municipal <- series_annual[!is.na(com)]
+monthly_mean <- series_monthly[is.na(com)]
+monthly_municipal <- series_monthly[!is.na(com)]
+n_municipalities <- nrow(study_municipalities())
+stopifnot(
+  uniqueN(annual_municipal$com) == n_municipalities, uniqueN(monthly_municipal$com) == n_municipalities,
+  nrow(annual_mean) == uniqueN(series_annual$year), all(series_daily$municipalities == n_municipalities),
+  nrow(series_daily) == uniqueN(analysis$date)
+)
+long_table <- function(table, height = "420px") {
+  kableExtra::scroll_box(
+    kableExtra::kable_styling(table, bootstrap_options = c("striped", "condensed"), font_size = 12),
+    height = height
+  )
+}
+# One row per municipality and one column per year, the mean of the municipalities last
+wide_by_year <- function(variable, digits) {
+  wide <- dcast(series_annual, com + municipality ~ year, value.var = variable)
+  setorder(wide, com, na.last = TRUE)
+  long_table(kable(wide[, !"com"], format = "html", digits = digits,
+                   col.names = c("Municipality", setdiff(names(wide), c("com", "municipality")))))
+}
+
+# Figures quoted in the text
+heatwave_somewhere <- series_daily[with_heatwave > 0, .N]
+heatwave_in_most <- series_daily[with_heatwave > municipalities / 2, .N]
+heatwave_everywhere <- series_daily[with_heatwave == municipalities, .N]
+compound_somewhere <- series_daily[heatwave_and_high_ozone > 0, .N]
+compound_everywhere <- series_daily[heatwave_and_high_ozone == municipalities, .N]
+# Years with more heatwave days than the mean of the twelve
+heavy_years <- annual_mean[heatwave_days > mean(heatwave_days), year]
+heavy_share <- annual_municipal[, 100 * sum(heatwave_days[year %in% heavy_years]) / sum(heatwave_days)]
+# How closely each municipality follows the mean of the municipalities, month by month
+monthly_reference <- monthly_mean[, .(year, month, tmax_mean = tmax, o3_mean = o3, mda8_mean = mda8)]
+follows <- merge(monthly_municipal, monthly_reference, by = c("year", "month"))[
+  , .(tmax = cor(tmax, tmax_mean), o3 = cor(o3, o3_mean), mda8 = cor(mda8, mda8_mean),
+      tmax_difference = mean(tmax - tmax_mean)), by = municipality]
+# The municipality and year with most high-ozone days
+most_ozone <- annual_municipal[which.max(high_ozone_days)]
+most_ozone_other_years <- annual_municipal[com == most_ozone$com & year != most_ozone$year]
+# Quoted in "Points to settle", at the end of the page
+ozone_point <- sprintf(
+  "In the delivered series %s has %d high-ozone days in %d, against %d at most in its other years",
+  most_ozone$municipality, most_ozone$high_ozone_days, most_ozone$year,
+  max(most_ozone_other_years$high_ozone_days))
+mda8_days_missing <- series_daily[mda8_municipalities < municipalities, .N]
+mda8_days_empty <- series_daily[mda8_municipalities == 0, .N]
+```
+
+The figures and the tables above describe the municipalities as a group. This
+section follows every municipality, and the mean of the 33, over the whole
+study period: the `r fmt(nrow(series_daily))` days of the warm seasons of 2009
+to 2020, by day, by month and by calendar year.
+
+- **Definitions.** The working definitions of `config/config.yml`: heatwave
+  `r heatwave_main` (`r heatwave_label(heatwave_main)`), ozone series
+  `r ozone_main`, high ozone above the `r cutoff_main`th percentile of the
+  municipality. The daily maximum 8-hour mean is the series rebuilt from the
+  validated hourly records (`o3mda8_idw`).
+- **Mean of the 33 municipalities.** The plain mean of the 33 municipal
+  values: every municipality counts the same, whatever its population or its
+  area.
+- **Days without a value.** The delivered ozone has a value on every day of
+  analysis. The rebuilt MDA8 is missing in at least one municipality on
+  `r mda8_days_missing` days, on `r mda8_days_empty` of them in all: the means
+  are taken over the municipalities, or the days, that have a value, and the
+  tables written by the script give their number.
+
+### Day by day
+
+```{r}
+#| label: fig-series-daily
+#| fig-cap: "Daily maximum temperature and ozone over the whole study period. Line: mean of the 33 municipalities. Band: the lowest and the highest municipality of each day. One column per warm season. File `series_1_daily_temperature_ozone.png`."
+#| out-width: "100%"
+knitr::include_graphics(series_figure("series_1_daily_temperature_ozone"))
+```
+
+```{r}
+#| label: fig-series-compound
+#| fig-cap: "Municipalities with a heatwave, with high ozone or with both, day by day, in each warm season of the study period (working definitions). File `series_2_daily_compound_exposure.png`."
+#| out-width: "100%"
+knitr::include_graphics(series_figure("series_2_daily_compound_exposure"))
+```
+
+```{r}
+#| label: tbl-series-seasons
+#| tbl-cap: "The warm seasons of the study period: days of analysis, mean of the daily means of the 33 municipalities, and days on which a heatwave, or a heatwave with high ozone, reaches at least one municipality and all of them (working definitions)."
+by_season <- series_daily[, .(
+  days = .N, tmax = mean(tmax_mean), o3 = mean(o3_mean, na.rm = TRUE),
+  mda8 = mean(mda8_mean, na.rm = TRUE),
+  heatwave_any = sum(with_heatwave > 0), heatwave_all = sum(with_heatwave == municipalities),
+  compound_any = sum(heatwave_and_high_ozone > 0),
+  compound_all = sum(heatwave_and_high_ozone == municipalities)
+), by = season]
+kable(by_season, digits = c(0, 0, 1, 1, 1, 0, 0, 0, 0),
+      col.names = c("Warm season", "Days", "Maximum temperature (°C)", "Ozone, 24-hour mean (ppb)",
+                    "Ozone, MDA8 (ppb)", "Heatwave in 1 or more municipalities (days)",
+                    "Heatwave in all 33 (days)", "Heatwave and high ozone in 1 or more (days)",
+                    "Heatwave and high ozone in all 33 (days)"))
+```
+
+The seasons 2008/09 and 2020/21 are covered in part: the study period starts
+on 1 January 2009 and ends on 31 December 2020.
+
+### Month by month
+
+```{r}
+#| label: fig-series-monthly
+#| fig-cap: "Monthly means of maximum temperature and ozone, warm-season months of 2009 to 2020. Grey lines: each municipality. Dark line: mean of the 33 municipalities. File `series_3_monthly_by_municipality.png`."
+#| out-width: "100%"
+knitr::include_graphics(series_figure("series_3_monthly_by_municipality"))
+```
+
+```{r}
+#| label: tbl-series-months
+#| tbl-cap: "Mean of the 33 municipalities by month: means of temperature and ozone, and days of exposure per municipality (working definitions)."
+long_table(kable(
+  monthly_mean[order(year, month), .(year, month = month.name[month], days, tmax, o3, mda8,
+                                     heatwave_days, high_ozone_days, compound_days)],
+  format = "html", digits = c(0, 0, 0, 1, 1, 1, 1, 1, 1),
+  col.names = c("Year", "Month", "Days", "Maximum temperature (°C)", "Ozone, 24-hour mean (ppb)",
+                "Ozone, MDA8 (ppb)", "Heatwave days", "High-ozone days",
+                "Days with heatwave and high ozone")))
+```
+
+### Year by year
+
+```{r}
+#| label: fig-series-annual
+#| fig-cap: "Annual means and days of exposure by calendar year (January to March and November to December). Grey lines: each municipality. Dark line: mean of the 33 municipalities. File `series_4_annual_by_municipality.png`."
+#| out-width: "100%"
+knitr::include_graphics(series_figure("series_4_annual_by_municipality"))
+```
+
+```{r}
+#| label: tbl-series-years
+#| tbl-cap: "Mean of the 33 municipalities by calendar year: means of temperature and ozone, and days of exposure per municipality (working definitions)."
+kable(annual_mean[order(year), .(year, days, tmax, o3, mda8, heatwave_days, high_ozone_days,
+                                 heatwave_only_days, compound_days)],
+      digits = c(0, 0, 1, 1, 1, 1, 1, 1, 1),
+      col.names = c("Year", "Days", "Maximum temperature (°C)", "Ozone, 24-hour mean (ppb)",
+                    "Ozone, MDA8 (ppb)", "Heatwave days", "High-ozone days", "Heatwave-only days",
+                    "Days with heatwave and high ozone"))
+```
+
+The values of every municipality, one table per variable; the last row of each
+is the mean of the 33 municipalities.
+
+::: {.panel-tabset}
+
+#### Maximum temperature
+
+```{r}
+#| label: tbl-series-tmax
+#| tbl-cap: "Mean maximum temperature (°C) by municipality and calendar year, warm-season days."
+wide_by_year("tmax", 1)
+```
+
+#### Ozone, 24-hour mean
+
+```{r}
+#| label: tbl-series-o3
+#| tbl-cap: "Mean ozone, 24-hour mean of the delivered series (ppb), by municipality and calendar year, warm-season days."
+wide_by_year("o3", 1)
+```
+
+#### Ozone, MDA8
+
+```{r}
+#| label: tbl-series-mda8
+#| tbl-cap: "Mean ozone, daily maximum 8-hour mean rebuilt from the validated records (ppb), by municipality and calendar year, warm-season days."
+wide_by_year("mda8", 1)
+```
+
+#### Heatwave days
+
+```{r}
+#| label: tbl-series-heatwave-days
+#| tbl-cap: "Heatwave days by municipality and calendar year (working definition)."
+wide_by_year("heatwave_days", 1)
+```
+
+#### High-ozone days
+
+```{r}
+#| label: tbl-series-high-ozone-days
+#| tbl-cap: "High-ozone days by municipality and calendar year (working definition)."
+wide_by_year("high_ozone_days", 1)
+```
+
+#### Heatwave and high ozone
+
+```{r}
+#| label: tbl-series-compound-days
+#| tbl-cap: "Days with a heatwave and high ozone by municipality and calendar year (working definitions)."
+wide_by_year("compound_days", 1)
+```
+
+:::
+
+### Each municipality against the mean
+
+```{r}
+#| label: fig-series-temperature
+#| fig-cap: "Maximum temperature of each municipality, monthly means of the warm-season months. Coloured line: the municipality. Grey line: mean of the 33 municipalities. File `series_5_municipalities_temperature.png`."
+#| out-width: "100%"
+knitr::include_graphics(series_figure("series_5_municipalities_temperature"))
+```
+
+```{r}
+#| label: fig-series-ozone
+#| fig-cap: "Ozone of each municipality (24-hour mean, delivered series), monthly means of the warm-season months. Coloured line: the municipality. Grey line: mean of the 33 municipalities. File `series_6_municipalities_ozone.png`."
+#| out-width: "100%"
+knitr::include_graphics(series_figure("series_6_municipalities_ozone"))
+```
+
+```{r}
+#| label: fig-series-heatwave-days
+#| fig-cap: "Heatwave days by calendar year in each municipality, split by ozone (working definitions). Bars: the municipality. Line: mean of the 33 municipalities. File `series_7_municipalities_heatwave_days.png`."
+#| out-width: "100%"
+knitr::include_graphics(series_figure("series_7_municipalities_heatwave_days"))
+```
+
+### What the series show
+
+- **Heatwave days are concentrated in `r length(heavy_years)` years.** In
+  `r paste(heavy_years, collapse = ", ")` the municipalities have between
+  `r fmt(min(annual_mean[year %in% heavy_years, heatwave_days]))` and
+  `r fmt(max(annual_mean[year %in% heavy_years, heatwave_days]))` heatwave days
+  on average, against `r fmt(min(annual_mean[!year %in% heavy_years, heatwave_days]))`
+  to `r fmt(max(annual_mean[!year %in% heavy_years, heatwave_days]))` days in the
+  other years: those `r length(heavy_years)` years hold `r fmt(heavy_share)`% of
+  the heatwave days of the period. The threshold comes from a reference period
+  that ends in 2020, and the days above it are more frequent at the end of that
+  period ([Heatwave definitions](#sec-methods-heatwaves)).
+- **How many municipalities at once.** `r heatwave_somewhere` of the
+  `r fmt(nrow(series_daily))` days have a heatwave in at least one
+  municipality; on `r heatwave_in_most` of them in more than half of the
+  municipalities, and on `r heatwave_everywhere` in all 33. A heatwave with
+  high ozone reaches at least one municipality on `r compound_somewhere` days,
+  and all of them on `r compound_everywhere`.
+- **Temperature moves together, ozone less.** Month by month, the temperature
+  of every municipality follows the mean of the 33: the lowest correlation is
+  `r fmt(min(follows$tmax), 3)`
+  (`r follows[which.min(tmax), municipality]`, whose series is also
+  `r fmt(abs(follows[which.min(tmax), tmax_difference]), 1)` °C colder than
+  the mean). For the delivered ozone the correlation goes from
+  `r fmt(min(follows$o3), 2)` (`r follows[which.min(o3), municipality]`) to
+  `r fmt(max(follows$o3), 2)` (`r follows[which.max(o3), municipality]`): the
+  ozone of a municipality depends on the few monitors near it.
+- **One series to look at.** `r most_ozone$municipality` has
+  `r most_ozone$high_ozone_days` high-ozone days in `r most_ozone$year`,
+  against `r max(most_ozone_other_years$high_ozone_days)` at most in its other
+  years; its mean ozone of that year is `r fmt(most_ozone$o3, 1)` ppb, against
+  `r fmt(min(most_ozone_other_years$o3), 1)` to
+  `r fmt(max(most_ozone_other_years$o3), 1)` ppb in the others. The delivered
+  series of that municipality and year should be checked against the station
+  records before it is used.
+
+# Points to settle {#sec-points-to-settle}
+
+1. **29 February.** CR2MET has no leap days. They are filled by interpolation
+   and flagged; the alternative is to leave them empty.
+2. **Season of the percentiles.** All days of the year (reference code) or
+   warm-season days only. The thresholds differ by about one degree.
+3. **Heatwave indicators of the reference repository.** Its script counts
+   consecutive days across stacked municipalities. This project counts them
+   within each municipality.
+4. **Fixed threshold of 30 °C.** With area-mean temperatures it is exceeded on
+   `r hot30_most` and on `r hot30_least`.
+5. **Ozone metric and inputs.** The delivered series is a 24-hour mean built on
+   trimmed and imputed station series; the plan names the MDA8. See the
+   [validation of the ozone exposure](#sec-ozone-validation).
+6. **Negative kriging values.** Set to missing and counted in the tables above.
+7. **Three buffer days of December 2008.** The monitoring network of PM2.5 and
+   NO2 was smaller before 2009; those days only feed the lags of the first
+   deaths of January 2009.
+8. **Temperature of the municipalities that reach into the Andes.** The CR2MET
+   series of a municipality describes its whole territory. `r andes_point`
+   ([why](#sec-heatwave-municipalities)). The options: keep the series as it
+   is; compute the temperature over the populated area, which needs the
+   gridded CR2MET files; or repeat the models without that municipality as a
+   sensitivity analysis.
+9. **How the municipal CR2MET series were built.** The files do not say with
+   which rule the grid was summarised over each territory
+   ([Temperature](#sec-methods-temperature)). It should be confirmed with the
+   team that produced them.
+10. **One ozone series to check.** `r ozone_point`
+    ([What the series show](#sec-series-municipalities)).
+
+# R scripts {#sec-scripts}
+
+The scripts are in [`Code/`](https://github.com/AmaruSimonAgueroJimenez/Heatwave-ozone-mortality-Chile/tree/main/Code) of the repository. They are
+not executed when this page is rendered: `Code/run_all.R` runs them in order
+and this page reads their outputs. The code of each one is folded below.
+
+::: {.no-download}
+
+| Script | Purpose |
+|---|---|
+| `Code/10_exposure_temperature.R` | The 15 heatwave indicators by municipality and day, from CR2MET. |
+| `Code/11_exposure_air_pollution.R` | Daily ozone, PM2.5, NO2 and humidity by municipality, from the delivered interpolated SINCA series. |
+| `Code/12_ozone_station_series.R` | Ozone rebuilt from the hourly SINCA records: 24-hour mean and MDA8 by station, interpolated to the municipalities. |
+| `Code/13_exposure_merge_qc.R` | Exposure dataset 2009-2020, alignment checks, ozone categories, compound exposure frequencies. |
+| `Code/14_interpolation_validation.R` | Leave-one-station-out cross-validation of IDW and ordinary kriging. |
+| `Code/15_export_geodata.R` | Polygons, target points and station coordinates in open formats, for script 16 and for the pages in Python. |
+| `Code/16_reanalysis_comparison.R` | Ozone series against the CAMS EAC4 reanalysis. |
+| `Code/17_validation_summary.R` | Tables of the ozone validation: station inputs, cross-validation, delivered against rebuilt series. |
+| `Code/18_exposure_time_series.R` | Time series of every municipality and of their mean over the whole study period: three tables and seven figures. |
+| `Code/00_setup.R` | Packages, folders, parameters and checks of the inputs, shared by the scripts. |
+| `Code/01_functions.R` | Functions shared by the scripts. |
+| `Code/02_plot_style.R` | Style of the figures and the function that writes figure files. |
+
+What each script reads and writes is in
+[Workflow and scripts](#sec-methods-workflow).
+
+:::
+
+```{r}
+#| eval: false
+#| file: ../Code/10_exposure_temperature.R
+#| code-summary: "Code/10_exposure_temperature.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/11_exposure_air_pollution.R
+#| code-summary: "Code/11_exposure_air_pollution.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/12_ozone_station_series.R
+#| code-summary: "Code/12_ozone_station_series.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/13_exposure_merge_qc.R
+#| code-summary: "Code/13_exposure_merge_qc.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/14_interpolation_validation.R
+#| code-summary: "Code/14_interpolation_validation.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/15_export_geodata.R
+#| code-summary: "Code/15_export_geodata.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/16_reanalysis_comparison.R
+#| code-summary: "Code/16_reanalysis_comparison.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/17_validation_summary.R
+#| code-summary: "Code/17_validation_summary.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/18_exposure_time_series.R
+#| code-summary: "Code/18_exposure_time_series.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/00_setup.R
+#| code-summary: "Code/00_setup.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/01_functions.R
+#| code-summary: "Code/01_functions.R"
+```
+
+```{r}
+#| eval: false
+#| file: ../Code/02_plot_style.R
+#| code-summary: "Code/02_plot_style.R"
+```
+
+```{r}
+#| label: session
+#| code-summary: "Session information"
+sessionInfo()
+```

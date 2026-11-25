@@ -3576,7 +3576,7 @@ com,municipality,heatwave,ozone,days,e00,e10,e01,e11,not_classified
 13114,Las Condes,hw_p95_2d,o3_ok_gt_p75,1815,1274,87,358,96,0
 13114,Las Condes,hw_p95_2d,o3_ok_gt_p90,1815,1505,128,127,55,0
 13114,Las Condes,hw_p95_2d,o3obs_ok_gt_p50,1815,882,25,748,158,2
-13114,Las Condes,hw_p95_2d,o3obs_ok_gt_p75,1815,1287,73,343,110,2
+13114,Las Condes,hw_p95_2d,o3obs_ok_gt_p75,1815,1286,74,344,109,2
 13114,Las Condes,hw_p95_2d,o3obs_ok_gt_p90,1815,1513,118,117,65,2
 13114,Las Condes,hw_p95_2d,o3mda8_ok_gt_p50,1815,877,29,752,154,3
 13114,Las Condes,hw_p95_2d,o3mda8_ok_gt_p75,1815,1282,77,347,106,3
@@ -3594,7 +3594,7 @@ com,municipality,heatwave,ozone,days,e00,e10,e01,e11,not_classified
 13114,Las Condes,hw_p95_3d,o3_ok_gt_p75,1815,1299,62,401,53,0
 13114,Las Condes,hw_p95_3d,o3_ok_gt_p90,1815,1548,85,152,30,0
 13114,Las Condes,hw_p95_3d,o3obs_ok_gt_p50,1815,889,18,809,97,2
-13114,Las Condes,hw_p95_3d,o3obs_ok_gt_p75,1815,1312,48,386,67,2
+13114,Las Condes,hw_p95_3d,o3obs_ok_gt_p75,1815,1311,49,387,66,2
 13114,Las Condes,hw_p95_3d,o3obs_ok_gt_p90,1815,1547,84,151,31,2
 13114,Las Condes,hw_p95_3d,o3mda8_ok_gt_p50,1815,885,21,812,94,3
 13114,Las Condes,hw_p95_3d,o3mda8_ok_gt_p75,1815,1306,53,391,62,3
@@ -3612,7 +3612,7 @@ com,municipality,heatwave,ozone,days,e00,e10,e01,e11,not_classified
 13114,Las Condes,hw_p95_4d,o3_ok_gt_p75,1815,1317,44,421,33,0
 13114,Las Condes,hw_p95_4d,o3_ok_gt_p90,1815,1576,57,162,20,0
 13114,Las Condes,hw_p95_4d,o3obs_ok_gt_p50,1815,895,12,841,65,2
-13114,Las Condes,hw_p95_4d,o3obs_ok_gt_p75,1815,1325,35,411,42,2
+13114,Las Condes,hw_p95_4d,o3obs_ok_gt_p75,1815,1324,36,412,41,2
 13114,Las Condes,hw_p95_4d,o3obs_ok_gt_p90,1815,1572,59,164,18,2
 13114,Las Condes,hw_p95_4d,o3mda8_ok_gt_p50,1815,891,15,844,62,3
 13114,Las Condes,hw_p95_4d,o3mda8_ok_gt_p75,1815,1318,41,417,36,3
@@ -4764,7 +4764,7 @@ com,municipality,heatwave,ozone,days,e00,e10,e01,e11,not_classified
 13118,Macul,hw_30c_2d,o3_ok_gt_p75,1815,1004,357,175,279,0
 13118,Macul,hw_30c_2d,o3_ok_gt_p90,1815,1135,498,44,138,0
 13118,Macul,hw_30c_2d,o3obs_ok_gt_p50,1815,750,157,428,478,2
-13118,Macul,hw_30c_2d,o3obs_ok_gt_p75,1815,1030,330,148,305,2
+13118,Macul,hw_30c_2d,o3obs_ok_gt_p75,1815,1031,329,147,306,2
 13118,Macul,hw_30c_2d,o3obs_ok_gt_p90,1815,1137,494,41,141,2
 13118,Macul,hw_30c_2d,o3mda8_ok_gt_p50,1815,758,148,420,486,3
 13118,Macul,hw_30c_2d,o3mda8_ok_gt_p75,1815,1016,343,162,291,3

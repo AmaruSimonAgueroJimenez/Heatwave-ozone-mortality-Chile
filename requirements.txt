@@ -1,7 +1,15 @@
-numpy
-pandas
-scipy
-pyyaml
-matplotlib
-geopandas
-jupyter
+# Python packages of the reports written in Python (docs/py_*.qmd), with the
+# versions that produced the tracked results (Python 3.13).
+# Code/run_python.py installs them; by hand: python3 -m pip install -r requirements.txt
+numpy==2.5.3
+pandas==3.0.5
+scipy==1.18.1
+pyyaml==6.0.3
+matplotlib==3.11.2
+geopandas==1.2.0
+jinja2==3.1.6                 # tables formatted with pandas
+# What Quarto needs to run Python code
+ipykernel==7.4.0
+matplotlib-inline==0.2.2      # picture format of the figures (py_01_exposure)
+nbclient==0.11.0
+nbformat==5.11.1

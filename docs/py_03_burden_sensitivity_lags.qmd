@@ -1,0 +1,607 @@
+---
+title: "Burden, sensitivity and lag structure in Python"
+subtitle: "Independent replication of the R pipeline · Heatwaves, ozone and mortality in Santiago, 2009-2020"
+author: "Amaru Agüero Jiménez"
+date: today
+jupyter: python3
+---
+
+## Purpose
+
+This page repeats in Python, for non-accidental mortality, the three analyses
+added after the main models: the attributable burden
+([R page](deliverable_3_models.html#sec-burden)), the adjusted models
+([R page](deliverable_4_sensitivity.html#sec-sensitivity)) and the models with all the lags
+([R page](deliverable_4_sensitivity.html#sec-lag-structure)). Nothing is read from the R results except
+to compare at the end of each section.
+
+Three pieces are written here independently of the R code:
+
+- the conditional logistic regression, maximised by Newton-Raphson from its
+  likelihood, as on the [Python models page](py_02_models.html);
+- the natural cubic spline of temperature, built from the truncated power
+  basis instead of the B-spline basis that R uses. The two bases span the same
+  curves, so the odds ratios must coincide although the coefficients differ;
+- the distributed-lag model of temperature, built from one spline per lag
+  instead of the cross-basis of the `dlnm` package.
+
+```{python}
+#| label: setup
+import hashlib
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import yaml
+from scipy import stats
+
+ROOT = next(p for p in [Path.cwd(), *Path.cwd().parents] if (p / "_quarto.yml").exists())
+DERIVED = ROOT / "Data" / "Derived"
+TABLES = ROOT / "Output" / "Tables"
+
+
+def merge_config(base, override):
+    """Entries of `override` replace those of `base`, level by level."""
+    out = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(out.get(key), dict):
+            out[key] = merge_config(out[key], value)
+        else:
+            out[key] = value
+    return out
+
+
+CFG = yaml.safe_load((ROOT / "config" / "config.yml").read_text(encoding="utf-8"))
+LOCAL = ROOT / "config" / "local.yml"
+if LOCAL.exists():
+    CFG = merge_config(CFG, yaml.safe_load(LOCAL.read_text(encoding="utf-8")))
+
+
+def get_param(*keys):
+    """Read one parameter; stop when it is missing or still null."""
+    value = CFG
+    for key in keys:
+        if not isinstance(value, dict) or value.get(key) is None:
+            raise KeyError(f"Parameter {'$'.join(keys)} is not set in config/config.yml")
+        value = value[key]
+    return value
+
+
+MANIFEST = pd.read_csv(ROOT / "Data" / "input_manifest.csv", dtype=str)
+VERIFIED = set()
+
+
+def verify_input(name, path):
+    """Stop unless the input is, byte for byte, the file listed in Data/input_manifest.csv."""
+    if name in VERIFIED:
+        return
+    expected = MANIFEST[MANIFEST["input"] == name]
+    if expected.empty:
+        raise KeyError(f"Input '{name}' is not listed in Data/input_manifest.csv")
+    for row in expected.itertuples():
+        file = path / row.file if path.is_dir() else path
+        if not file.exists():
+            raise FileNotFoundError(f"Input '{name}': file not found: {file}")
+        digest = hashlib.md5(usedforsecurity=False)
+        with open(file, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        if file.stat().st_size != int(row.bytes) or digest.hexdigest() != row.md5:
+            raise ValueError(f"Input '{name}' is not the file the results were produced from: {file}")
+    VERIFIED.add(name)
+
+
+def input_path(name):
+    root = Path(get_param("paths", "input_root")).expanduser()
+    if not root.is_absolute():
+        root = ROOT / root
+    path = Path(get_param("inputs", name)).expanduser()
+    if not path.is_absolute():
+        path = root / path
+    if not path.exists():
+        raise FileNotFoundError(f"Input '{name}' not found: {path}")
+    verify_input(name, path)
+    return path
+
+
+municipalities = pd.read_csv(ROOT / get_param("study", "municipalities_file"))
+STUDY_YEARS = get_param("mortality", "years")
+WARM_MONTHS = get_param("study", "warm_season_months")
+LAGS = get_param("design", "lags_days")
+LAG_MAIN = get_param("models", "lag_main")
+CONF = get_param("models", "conf_level")
+Z = stats.norm.ppf(1 - (1 - CONF) / 2)
+AGE_LABELS = get_param("mortality", "age_labels")
+CATEGORIES = ["e10", "e01", "e11"]
+HEATWAVE = get_param("models", "heatwave_main")
+OZONE_SERIES = (f"{get_param('air_pollution', 'ozone_series_main')}_"
+                f"{get_param('air_pollution', 'interpolation_method_main')}")
+OZONE_FLAG = f"{OZONE_SERIES}_gt_p{get_param('models', 'ozone_cutoff_main')}"
+LOW_FLAG = f"{OZONE_SERIES}_gt_p{get_param('sensitivity', 'low_ozone_cutoff')}"
+METHOD = get_param("air_pollution", "interpolation_method_main")
+INCREMENTS = get_param("sensitivity", "adjustment_increments")
+TEMPERATURE = get_param("temperature_response")
+OZONE_INCREMENT = get_param("distributed_lags", "ozone_increment_ppb")
+assert TEMPERATURE["scale"] == "local_percentile"
+
+
+def relative_difference(python_values, r_values):
+    """Largest difference by row, relative to the R value when it exceeds one."""
+    python_values, r_values = np.asarray(python_values, float), np.asarray(r_values, float)
+    return (np.abs(python_values - r_values) / np.maximum(1, np.abs(r_values))).max(axis=1)
+
+
+worst = {}
+```
+
+## Deaths, referent days and exposures
+
+The same steps as on the [Python models page](py_02_models.html).
+
+```{python}
+#| label: deaths
+needed = ["FECHA_DEF", "SEXO_NOMBRE", "EDAD_TIPO", "EDAD_CANT", "COD_COMUNA", "DIAG1"]
+deaths = pd.read_csv(input_path("deis_deaths"), sep=";", encoding="latin-1", usecols=needed,
+                     parse_dates=["FECHA_DEF"]).dropna(subset=["FECHA_DEF", "COD_COMUNA"])
+deaths = deaths[deaths["COD_COMUNA"].isin(municipalities["code"])
+                & deaths["FECHA_DEF"].dt.year.between(*STUDY_YEARS)
+                & deaths["FECHA_DEF"].dt.month.isin(WARM_MONTHS)].copy()
+
+
+def icd_key(code3):
+    """Numeric key of a three-character ICD-10 category: 'I21' -> 821."""
+    return code3.str[0].map(lambda c: ord(c) - ord("A")) * 100 + code3.str[1:3].astype(int)
+
+
+key = icd_key(deaths["DIAG1"].str[:3])
+low, high = get_param("mortality", "cause_groups")["non_accidental"][0].split("-")
+deaths = deaths[key.between(icd_key(pd.Series([low]))[0], icd_key(pd.Series([high]))[0])].copy()
+age = deaths["EDAD_CANT"].where(deaths["EDAD_TIPO"] == 1, 0.0).where(deaths["EDAD_TIPO"].isin([1, 2, 3, 4]))
+deaths["age_group"] = pd.cut(age, get_param("mortality", "age_breaks") + [np.inf],
+                             labels=AGE_LABELS, right=False)
+deaths = deaths.rename(columns={"FECHA_DEF": "date", "COD_COMUNA": "com"})[["com", "date", "age_group"]]
+print(f"{len(deaths):,} non-accidental deaths")
+
+
+def referent_table(selected):
+    """One row per municipality, day of death and referent day (same year,
+    month and day of the week), with the number of deaths as weight."""
+    strata = (selected.groupby(["com", "date"]).size().rename("n_deaths").reset_index()
+              .rename(columns={"date": "case_date"}))
+    strata["stratum"] = np.arange(len(strata))
+    calendar = pd.DataFrame({"date": pd.date_range(strata["case_date"].min() - pd.Timedelta(days=31),
+                                                   strata["case_date"].max() + pd.Timedelta(days=31))})
+    for frame, column in ((strata, "case_date"), (calendar, "date")):
+        frame["yr"], frame["mo"], frame["wd"] = (frame[column].dt.year, frame[column].dt.month,
+                                                 frame[column].dt.dayofweek)
+    table = strata.merge(calendar, on=["yr", "mo", "wd"])
+    table["case"] = (table["date"] == table["case_date"]).astype(int)
+    return table.sort_values(["stratum", "date"]).reset_index(drop=True)
+
+
+exposure = pd.read_csv(
+    DERIVED / "py_exposure_2009_2020.csv", parse_dates=["date"],
+    usecols=["com", "date", "year", "in_study_period", "warm_season", HEATWAVE, OZONE_FLAG, LOW_FLAG,
+             OZONE_SERIES, TEMPERATURE["variable"], *[f"{v}_{METHOD}" for v in INCREMENTS]])
+
+
+def with_lag(columns, lag, suffix=""):
+    """Exposure `lag` days before each day, columns renamed with `suffix`."""
+    out = exposure[["com", "date", *columns]].copy()
+    out["date"] = out["date"] + pd.Timedelta(days=lag)
+    return out.rename(columns={c: f"{c}{suffix}" for c in columns})
+
+
+def complete_strata(data, columns):
+    """Rows of the strata where every column is known on every referent day."""
+    incomplete = data.loc[data[columns].isna().any(axis=1), "stratum"].unique()
+    return data[~data["stratum"].isin(incomplete)].sort_values(["stratum", "date"])
+
+
+def conditional_logit(x, data):
+    """Weighted conditional logistic regression, one case per stratum.
+    Maximises sum_s w_s [x_case'b - log sum_j exp(x_j'b)] by Newton-Raphson and
+    returns the estimates and the inverse of the observed information."""
+    x = np.asarray(x, dtype=float)
+    case, stratum = data["case"].to_numpy(), data["stratum"].to_numpy()
+    weight = data["n_deaths"].to_numpy(float)
+    starts = np.flatnonzero(np.r_[True, stratum[1:] != stratum[:-1]])
+    counts = np.diff(np.r_[starts, len(stratum)])
+    w = weight[starts]
+    x_case = x[case == 1]
+    assert len(x_case) == len(starts)
+    beta = np.zeros(x.shape[1])
+    for _ in range(50):
+        eta = x @ beta
+        eta = eta - np.repeat(np.maximum.reduceat(eta, starts), counts)
+        e = np.exp(eta)
+        p = e / np.repeat(np.add.reduceat(e, starts), counts)
+        mean_x = np.add.reduceat(p[:, None] * x, starts, axis=0)
+        score = (w[:, None] * (x_case - mean_x)).sum(axis=0)
+        # sum_s w_s [sum_j p_j x_j x_j' - m_s m_s']
+        information = (x * (weight * p)[:, None]).T @ x - (mean_x * w[:, None]).T @ mean_x
+        step = np.linalg.solve(information, score)
+        beta = beta + step
+        if np.max(np.abs(step)) < 1e-10:
+            return beta, np.linalg.inv(information)
+    raise RuntimeError("Newton-Raphson did not converge")
+
+
+def odds_ratio_rows(names, beta, covariance):
+    se = np.sqrt(np.diag(covariance))
+    return pd.DataFrame({"term": names, "or": np.exp(beta), "or_low": np.exp(beta - Z * se),
+                         "or_high": np.exp(beta + Z * se)})
+
+
+def combination(weights, beta, covariance):
+    """Odds ratio and interval of the linear combination weights'beta."""
+    estimate = float(weights @ beta)
+    se = float(np.sqrt(weights @ covariance @ weights))
+    return np.exp(estimate), np.exp(estimate - Z * se), np.exp(estimate + Z * se)
+
+
+def reoi(beta, covariance):
+    """REOI = OR11 - OR10 - OR01 + 1 with its delta-method interval."""
+    or10, or01, or11 = np.exp(beta)
+    gradient = np.array([-or10, -or01, or11])
+    estimate = or11 - or10 - or01 + 1
+    se = float(np.sqrt(gradient @ covariance @ gradient))
+    return estimate, estimate - Z * se, estimate + Z * se
+
+
+def add_categories(data, hw="hw", oz="oz", suffix=""):
+    data[f"e10{suffix}"] = ((data[hw] == 1) & (data[oz] == 0)).astype(float)
+    data[f"e01{suffix}"] = ((data[hw] == 0) & (data[oz] == 1)).astype(float)
+    data[f"e11{suffix}"] = ((data[hw] == 1) & (data[oz] == 1)).astype(float)
+    return data
+```
+
+## Attributable burden
+
+Odds ratios by age group at lag `{python} LAG_MAIN`, deaths per day on the days
+with neither exposure by municipality, calendar year and age group, and the
+excess $\text{baseline} \times (OR - 1) \times \text{exposed days}$, with the
+delta-method interval.
+
+```{python}
+#| label: burden
+flags = with_lag([HEATWAVE, OZONE_FLAG], LAG_MAIN).rename(columns={HEATWAVE: "hw", OZONE_FLAG: "oz"})
+study_days = exposure.loc[exposure["in_study_period"] & exposure["warm_season"], ["com", "date", "year"]]
+days = add_categories(study_days.merge(flags, on=["com", "date"], how="left", validate="1:1"))
+days["category"] = np.select([days["e10"] == 1, days["e01"] == 1, days["e11"] == 1,
+                              (days["hw"] == 0) & (days["oz"] == 0)], ["e10", "e01", "e11", "e00"],
+                             default="unknown")
+assert (days["category"] != "unknown").all()
+
+models, cells = {}, []
+for age_group in AGE_LABELS:
+    selected = deaths[deaths["age_group"] == age_group]
+    data = add_categories(complete_strata(
+        referent_table(selected).merge(flags, on=["com", "date"], how="left", validate="m:1"), ["hw", "oz"]))
+    models[age_group] = conditional_logit(data[CATEGORIES], data)
+    per_day = selected.groupby(["com", "date"]).size().rename("n").reset_index()
+    counted = days.merge(per_day, on=["com", "date"], how="left", validate="1:1").fillna({"n": 0})
+    assert counted["n"].sum() == len(selected)
+    table = (counted.groupby(["com", "year", "category"]).agg(days=("n", "size"), deaths=("n", "sum"))
+             .reset_index())
+    reference = (table[table["category"] == "e00"].set_index(["com", "year"])
+                 .rename(columns={"days": "reference_days", "deaths": "reference_deaths"})
+                 [["reference_days", "reference_deaths"]])
+    exposed = table[table["category"] != "e00"].join(reference, on=["com", "year"])
+    assert exposed["reference_days"].gt(0).all()
+    exposed["expected"] = exposed["reference_deaths"] / exposed["reference_days"] * exposed["days"]
+    cells.append(exposed.assign(age_group=age_group))
+cells = pd.concat(cells, ignore_index=True)
+
+
+def burden(group):
+    """Excess deaths of a group of cells, by category and for the three together."""
+    rows = []
+    for target in [*CATEGORIES, "any"]:
+        include = np.array([target in (c, "any") for c in CATEGORIES], float)
+        excess = attributable = variance = variance_attributable = 0.0
+        for age_group, (beta, covariance) in models.items():
+            part = group[group["age_group"] == age_group].groupby("category")[["expected", "deaths"]].sum()
+            expected = part["expected"].reindex(CATEGORIES, fill_value=0).to_numpy()
+            observed = part["deaths"].reindex(CATEGORIES, fill_value=0).to_numpy()
+            odds = np.exp(beta)
+            excess += (include * expected * (odds - 1)).sum()
+            attributable += (include * observed * (1 - 1 / odds)).sum()
+            g = include * expected * odds
+            variance += g @ covariance @ g
+            g = include * observed / odds
+            variance_attributable += g @ covariance @ g
+        rows.append({"category": target, "excess": excess, "excess_low": excess - Z * np.sqrt(variance),
+                     "excess_high": excess + Z * np.sqrt(variance), "attributable": attributable,
+                     "attributable_low": attributable - Z * np.sqrt(variance_attributable),
+                     "attributable_high": attributable + Z * np.sqrt(variance_attributable)})
+    return pd.DataFrame(rows)
+
+
+burden_python = pd.concat([
+    burden(cells).assign(level="total", year=np.nan, com=np.nan),
+    *[burden(g).assign(level="year", year=year, com=np.nan) for year, g in cells.groupby("year")],
+    *[burden(g).assign(level="municipality", year=np.nan, com=com) for com, g in cells.groupby("com")],
+], ignore_index=True)
+```
+
+```{python}
+#| label: tbl-burden
+#| tbl-cap: "Excess non-accidental deaths, warm seasons of the study years: Python against R."
+value_columns = ["excess", "excess_low", "excess_high", "attributable", "attributable_low",
+                 "attributable_high"]
+burden_r = pd.read_csv(TABLES / "burden_estimates.csv")
+burden_r = burden_r[(burden_r["outcome"] == "non_accidental") & (burden_r["lag"] == LAG_MAIN)
+                    & (burden_r["or_source"] == "age-specific")
+                    & burden_r["level"].isin(["total", "year", "municipality"])]
+compared = burden_python.merge(burden_r[["level", "year", "com", "category", *value_columns]],
+                               on=["level", "year", "com", "category"], suffixes=("_python", "_r"),
+                               validate="1:1")
+assert len(compared) == len(burden_python) == len(burden_r)
+compared["difference"] = relative_difference(compared[[f"{c}_python" for c in value_columns]],
+                                             compared[[f"{c}_r" for c in value_columns]])
+worst["burden"] = compared["difference"].max()
+shown = compared[compared["level"] == "total"]
+(shown[["category", "excess_python", "excess_low_python", "excess_high_python", "excess_r",
+        "attributable_python", "attributable_r", "difference"]]
+ .style.format({c: "{:,.1f}" for c in ["excess_python", "excess_low_python", "excess_high_python",
+                                        "excess_r", "attributable_python", "attributable_r"]}
+               | {"difference": "{:.1e}"}).hide(axis="index"))
+```
+
+```{python}
+#| label: burden-verdict
+print(f"{len(compared)} estimates compared (total, {compared['year'].nunique()} years, "
+      f"{compared['com'].nunique()} municipalities, four categories each)")
+print(f"Largest relative difference with R, limits included: {worst['burden']:.1e}")
+```
+
+## Adjusted models
+
+```{python}
+#| label: temperature-scale
+variable = TEMPERATURE["variable"]
+warm = exposure[exposure["in_study_period"] & exposure["warm_season"]]
+reference_values = {com: np.sort(g[variable].to_numpy()) for com, g in warm.groupby("com")}
+
+
+def local_percentile(frame, column):
+    """100 x share of the warm-season days of the municipality at or below the value."""
+    out = np.full(len(frame), np.nan)
+    codes = frame["com"].to_numpy()
+    values = frame[column].to_numpy()
+    for com, reference in reference_values.items():
+        rows = codes == com
+        out[rows] = 100 * np.searchsorted(reference, values[rows], side="right") / len(reference)
+    out[np.isnan(values)] = np.nan
+    return out
+
+
+def natural_spline(percentile):
+    """Natural cubic spline, truncated power basis, without the constant.
+    Knots: the boundary knots and the internal knots of the configuration."""
+    knots = np.array([TEMPERATURE["spline_boundary"][0], *TEMPERATURE["spline_knots"],
+                      TEMPERATURE["spline_boundary"][1]], float) / 100
+    x = np.asarray(percentile, float) / 100
+
+    def d(k):
+        return ((np.clip(x - knots[k], 0, None) ** 3 - np.clip(x - knots[-1], 0, None) ** 3)
+                / (knots[-1] - knots[k]))
+
+    return np.column_stack([x, *[d(k) - d(len(knots) - 2) for k in range(len(knots) - 2)]])
+
+
+SPLINE_TERMS = [f"temp_s{i + 1}" for i in range(natural_spline([50.0]).shape[1])]
+contrast_basis = natural_spline(TEMPERATURE["contrasts"]) - natural_spline([TEMPERATURE["reference"]])
+```
+
+```{python}
+#| label: adjusted
+referents = referent_table(deaths)
+covariates = list(INCREMENTS)
+lagged = with_lag([HEATWAVE, OZONE_FLAG, LOW_FLAG, variable, *[f"{v}_{METHOD}" for v in covariates]],
+                  LAG_MAIN).rename(columns={HEATWAVE: "hw", OZONE_FLAG: "oz", LOW_FLAG: "above_low"})
+data = referents.merge(lagged, on=["com", "date"], how="left", validate="m:1")
+for v in covariates:
+    data[v] = data[f"{v}_{METHOD}"] / INCREMENTS[v]
+data[SPLINE_TERMS] = natural_spline(local_percentile(data, variable))
+headline = add_categories(complete_strata(data, ["hw", "oz"]))
+adjusted_data = complete_strata(headline, [*covariates, *SPLINE_TERMS])
+
+adjustments = {"none": [], " + ".join(covariates): covariates, "temperature": SPLINE_TERMS,
+               " + ".join([*covariates, "temperature"]): [*covariates, *SPLINE_TERMS]}
+rows = []
+for name, extra in adjustments.items():
+    terms = [*CATEGORIES, *extra]
+    beta, covariance = conditional_logit(adjusted_data[terms], adjusted_data)
+    table = odds_ratio_rows(terms, beta, covariance)
+    table = table[~table["term"].isin(SPLINE_TERMS)]
+    if extra[-len(SPLINE_TERMS):] == SPLINE_TERMS:
+        position = [terms.index(t) for t in SPLINE_TERMS]
+        contrasts = [combination(w, beta[position], covariance[np.ix_(position, position)])
+                     for w in contrast_basis]
+        table = pd.concat([table, pd.DataFrame(contrasts, columns=["or", "or_low", "or_high"]).assign(
+            term=[f"temperature_p{p}" for p in TEMPERATURE["contrasts"]])])
+    rows.append(table.assign(adjustment=name))
+adjusted_python = pd.concat(rows, ignore_index=True)
+
+# Three ozone levels, reference: no heatwave and low ozone
+levels = headline.copy()
+levels["level"] = np.where(levels["oz"] == 1, "high", np.where(levels["above_low"] == 1, "medium", "low"))
+level_terms = ["h0_medium", "h0_high", "h1_low", "h1_medium", "h1_high"]
+for term in level_terms:
+    heatwave_value, level = term[1], term[3:]
+    levels[term] = ((levels["hw"] == int(heatwave_value)) & (levels["level"] == level)).astype(float)
+beta, covariance = conditional_logit(levels[level_terms], levels)
+reference_python = odds_ratio_rows(level_terms, beta, covariance)
+position = [level_terms.index(t) for t in ["h1_low", "h0_high", "h1_high"]]
+reference_reoi = reoi(beta[position], covariance[np.ix_(position, position)])
+```
+
+```{python}
+#| label: tbl-adjusted
+#| tbl-cap: "Compound model with adjustment, non-accidental mortality: Python against R. The temperature rows are the odds ratios of a day at that percentile against the reference percentile."
+adjusted_r = pd.read_csv(TABLES / "sensitivity_adjustment_or.csv")
+adjusted_r = adjusted_r[(adjusted_r["outcome"] == "non_accidental") & (adjusted_r["lag"] == LAG_MAIN)
+                        & adjusted_r["adjustment"].isin(adjustments)]
+compared = adjusted_python.merge(adjusted_r[["adjustment", "term", "or", "or_low", "or_high", "deaths"]],
+                                 on=["adjustment", "term"], suffixes=("_python", "_r"), validate="1:1")
+assert len(compared) == len(adjusted_python) == len(adjusted_r)
+assert (compared["deaths"] == adjusted_data.loc[adjusted_data["case"] == 1, "n_deaths"].sum()).all()
+compared["difference"] = relative_difference(compared[["or_python", "or_low_python", "or_high_python"]],
+                                             compared[["or_r", "or_low_r", "or_high_r"]])
+worst["adjusted models"] = compared["difference"].max()
+(compared[["adjustment", "term", "or_python", "or_low_python", "or_high_python", "or_r", "difference"]]
+ .style.format({c: "{:.4f}" for c in ["or_python", "or_low_python", "or_high_python", "or_r"]}
+               | {"difference": "{:.1e}"}).hide(axis="index"))
+```
+
+```{python}
+#| label: tbl-reference
+#| tbl-cap: "Three ozone levels, non-accidental mortality: Python against R."
+reference_r = pd.read_csv(TABLES / "sensitivity_reference_or.csv")
+reference_r = reference_r[(reference_r["outcome"] == "non_accidental") & (reference_r["lag"] == LAG_MAIN)]
+compared = reference_python.merge(reference_r[["term", "or", "or_low", "or_high"]], on="term",
+                                  suffixes=("_python", "_r"), validate="1:1")
+assert len(compared) == len(level_terms)
+compared["difference"] = relative_difference(compared[["or_python", "or_low_python", "or_high_python"]],
+                                             compared[["or_r", "or_low_r", "or_high_r"]])
+interaction_r = pd.read_csv(TABLES / "sensitivity_reference_interaction.csv")
+interaction_r = interaction_r[(interaction_r["outcome"] == "non_accidental")
+                              & (interaction_r["lag"] == LAG_MAIN) & (interaction_r["measure"] == "REOI")
+                              & (interaction_r["contrast"] == "high against low ozone")]
+assert len(interaction_r) == 1
+reoi_difference = relative_difference([reference_reoi],
+                                      interaction_r[["estimate", "low", "high"]].to_numpy())[0]
+worst["three ozone levels"] = max(compared["difference"].max(), reoi_difference)
+(compared[["term", "or_python", "or_low_python", "or_high_python", "or_r", "difference"]]
+ .style.format({c: "{:.4f}" for c in ["or_python", "or_low_python", "or_high_python", "or_r"]}
+               | {"difference": "{:.1e}"}).hide(axis="index"))
+```
+
+## All the lags in one model
+
+```{python}
+#| label: lags
+data = referents.copy()
+for lag in LAGS:
+    lagged = with_lag([HEATWAVE, OZONE_FLAG, OZONE_SERIES, variable], lag, suffix=f"_lag{lag}")
+    data = data.merge(lagged, on=["com", "date"], how="left", validate="m:1")
+    data = add_categories(data, hw=f"{HEATWAVE}_lag{lag}", oz=f"{OZONE_FLAG}_lag{lag}", suffix=f"_lag{lag}")
+    unknown = data[[f"{HEATWAVE}_lag{lag}", f"{OZONE_FLAG}_lag{lag}"]].isna().any(axis=1)
+    data.loc[unknown, [f"{c}_lag{lag}" for c in CATEGORIES]] = np.nan
+    data[f"ozone_lag{lag}"] = data[f"{OZONE_SERIES}_lag{lag}"] / OZONE_INCREMENT
+    spline = natural_spline(local_percentile(data, f"{variable}_lag{lag}"))
+    data[[f"temp_lag{lag}_s{i + 1}" for i in range(spline.shape[1])]] = spline
+
+# Exposure categories
+compound_terms = [f"{c}_lag{lag}" for c in CATEGORIES for lag in LAGS]
+compound_data = complete_strata(data, compound_terms)
+beta, covariance = conditional_logit(compound_data[compound_terms], compound_data)
+by_lag = odds_ratio_rows(compound_terms, beta, covariance)
+by_lag[["category", "lag"]] = by_lag["term"].str.split("_lag", expand=True)
+sums = np.array([[t.startswith(c) for t in compound_terms] for c in CATEGORIES], float)
+cumulative = pd.DataFrame([combination(w, beta, covariance) for w in sums],
+                          columns=["or", "or_low", "or_high"]).assign(category=CATEGORIES, lag="cumulative")
+compound_python = pd.concat([by_lag.drop(columns="term"), cumulative], ignore_index=True)
+cumulative_reoi = reoi(sums @ beta, sums @ covariance @ sums.T)
+
+# Temperature: one spline per lag; ozone: one linear term per lag
+temperature_terms = [f"temp_lag{lag}_s{i + 1}" for lag in LAGS for i in range(len(SPLINE_TERMS))]
+ozone_terms = [f"ozone_lag{lag}" for lag in LAGS]
+temperature_rows, ozone_rows = [], []
+for model, terms in {"temperature": temperature_terms, "ozone": ozone_terms,
+                     "temperature + ozone": [*temperature_terms, *ozone_terms]}.items():
+    model_data = complete_strata(data, terms)
+    beta, covariance = conditional_logit(model_data[terms], model_data)
+    if "temperature" in model:
+        for percentile, contrast in zip(TEMPERATURE["contrasts"], contrast_basis):
+            for lag in [*LAGS, "cumulative"]:
+                weights = np.zeros(len(terms))
+                for j in LAGS:
+                    if lag in (j, "cumulative"):
+                        first = terms.index(f"temp_lag{j}_s1")
+                        weights[first:first + len(contrast)] = contrast
+                temperature_rows.append((model, percentile, str(lag), *combination(weights, beta, covariance)))
+    if "ozone" in model:
+        position = [terms.index(t) for t in ozone_terms]
+        for lag in [*LAGS, "cumulative"]:
+            weights = np.zeros(len(terms))
+            weights[[p for p, j in zip(position, LAGS) if lag in (j, "cumulative")]] = 1
+            ozone_rows.append((model, str(lag), *combination(weights, beta, covariance)))
+temperature_python = pd.DataFrame(temperature_rows, columns=["model", "percentile", "lag", "or", "or_low", "or_high"])
+ozone_python = pd.DataFrame(ozone_rows, columns=["model", "lag", "or", "or_low", "or_high"])
+```
+
+```{python}
+#| label: tbl-lags
+#| tbl-cap: "Exposure categories with all the lags in one model, non-accidental mortality: Python against R."
+def compare(python_table, r_file, keys):
+    r_table = pd.read_csv(TABLES / r_file, dtype={"lag": str})
+    r_table = r_table[r_table["outcome"] == "non_accidental"]
+    merged = python_table.merge(r_table[[*keys, "or", "or_low", "or_high"]], on=keys,
+                                suffixes=("_python", "_r"), validate="1:1")
+    assert len(merged) == len(python_table) == len(r_table)
+    merged["difference"] = relative_difference(merged[["or_python", "or_low_python", "or_high_python"]],
+                                               merged[["or_r", "or_low_r", "or_high_r"]])
+    return merged
+
+
+def show(merged, keys):
+    return (merged[[*keys, "or_python", "or_low_python", "or_high_python", "or_r", "difference"]]
+            .style.format({c: "{:.4f}" for c in ["or_python", "or_low_python", "or_high_python", "or_r"]}
+                          | {"difference": "{:.1e}"}).hide(axis="index"))
+
+
+compound = compare(compound_python, "lags_compound_or.csv", ["category", "lag"])
+interaction_r = pd.read_csv(TABLES / "lags_compound_interaction.csv")
+interaction_r = interaction_r[(interaction_r["outcome"] == "non_accidental")
+                              & (interaction_r["measure"] == "REOI")]
+reoi_difference = relative_difference([cumulative_reoi], interaction_r[["estimate", "low", "high"]].to_numpy())[0]
+worst["exposure categories, all lags"] = max(compound["difference"].max(), reoi_difference)
+print(f"Cumulative REOI: Python {cumulative_reoi[0]:.4f} ({cumulative_reoi[1]:.4f} to {cumulative_reoi[2]:.4f}), "
+      f"R {interaction_r['estimate'].iloc[0]:.4f}")
+show(compound, ["category", "lag"])
+```
+
+```{python}
+#| label: tbl-temperature
+#| tbl-cap: "Temperature percentiles against the reference percentile, by lag and cumulative: one spline per lag in Python against the dlnm cross-basis in R."
+temperature = compare(temperature_python, "lags_temperature_or.csv", ["model", "percentile", "lag"])
+worst["temperature, all lags"] = temperature["difference"].max()
+show(temperature[temperature["lag"] == "cumulative"], ["model", "percentile", "lag"])
+```
+
+```{python}
+#| label: tbl-ozone
+#| tbl-cap: "Ozone per increment, by lag and cumulative: Python against R."
+ozone = compare(ozone_python, "lags_ozone_or.csv", ["model", "lag"])
+worst["ozone, all lags"] = ozone["difference"].max()
+show(ozone, ["model", "lag"])
+```
+
+## Agreement with R
+
+```{python}
+#| label: verdict
+for analysis, difference in worst.items():
+    print(f"{analysis:<32} largest relative difference {difference:.1e}")
+tolerance = 1e-5
+assert max(worst.values()) < tolerance, "Python and R disagree beyond the tolerance"
+print(f"\nEvery estimate and confidence limit agrees with R within {tolerance:.0e}.")
+```
+
+The spline coefficients of the two implementations are different numbers,
+because the bases differ; the odds ratios agree because the curves are the
+same. The results themselves are discussed on the R pages.
+
+## Software
+
+```{python}
+#| label: versions
+import platform
+import scipy
+print("Python", platform.python_version())
+for module in (np, pd, scipy, yaml):
+    print(module.__name__, module.__version__)
+```
